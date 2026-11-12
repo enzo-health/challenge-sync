@@ -5,7 +5,9 @@
   without the code, with a wrong one, or with a placeholder identity;
 * joining twice with one identity signs in to the same account instead of creating a second;
 * a device sync token becomes a website session, and a bad token does not;
-* only an admin can make someone else an admin, and cannot remove their own access.
+* only an admin can make someone else an admin, and cannot remove their own access;
+* only an admin can generate the join link, and generating a new one retires the previous code
+  while the fixed `JOIN_CODE` keeps working.
 """
 import http.cookiejar
 import json
@@ -126,6 +128,34 @@ with tempfile.TemporaryDirectory(prefix='extension-join-e2e-') as directory:
         admin.request(ada_admin, {'isAdmin': False}, method='PUT')
         me = Client().request('/api/auth/me', cookie=session['sessionToken'])
         check('an admin can remove another admin', me['isSystemAdmin'] is False)
+
+        join_link = '/api/system/join-link'
+        Client().request(join_link, method='POST', cookie=session['sessionToken'], status=401)
+        Client().request(join_link, method='POST', status=401)
+        check('a regular member cannot generate the join link', True)
+
+        generated = admin.request(join_link, method='POST')['joinCode']
+        check('an admin can generate a join link',
+              len(generated) >= 16 and re.fullmatch(r'[A-Za-z0-9_-]+', generated) is not None)
+        check('the overview shows the generated code instead of the fixed one',
+              admin.request('/api/system/overview')['joinCode'] == generated)
+
+        grace = {'memberUrn': 'urn:li:fsd_profile:GRACE1', 'publicIdentifier': 'grace-hopper',
+                 'firstName': 'Grace', 'lastName': 'Hopper'}
+        joined = anon.request(join, {'joinCode': generated, 'member': grace})
+        check('the generated code lets a new person join', joined['created'] is True)
+
+        replacement = admin.request(join_link, method='POST')['joinCode']
+        alan = {'memberUrn': 'urn:li:fsd_profile:ALAN1', 'publicIdentifier': 'alan-turing',
+                'firstName': 'Alan', 'lastName': 'Turing'}
+        anon.request(join, {'joinCode': generated, 'member': alan}, status=403)
+        check('a replaced code is refused', replacement != generated)
+        check('the new code works after replacing',
+              anon.request(join, {'joinCode': replacement, 'member': alan})['created'] is True)
+        check('the overview shows the newest code',
+              admin.request('/api/system/overview')['joinCode'] == replacement)
+        check('the fixed JOIN_CODE still works alongside the generated one',
+              anon.request(join, {'joinCode': JOIN_CODE, 'member': ada})['memberId'] == first['memberId'])
 
         for path in ('/auth/login', '/auth/password', f'/join/{JOIN_CODE}'):
             Client().request(path)

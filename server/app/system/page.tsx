@@ -4,6 +4,7 @@ import {
   getGetSystemOverviewQueryKey,
   useGetSystemOverview,
   useImpersonate,
+  useRegenerateJoinLink,
   useSetMemberAdmin,
 } from "@linkedin-challenge/client/react-query";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,8 +15,10 @@ export default function SystemPanel() {
   const { data, isLoading } = useGetSystemOverview();
   const impersonate = useImpersonate();
   const setAdmin = useSetMemberAdmin();
+  const regenerate = useRegenerateJoinLink();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [linkError, setLinkError] = useState(false);
 
   if (isLoading) return <div className="spinner">Loading…</div>;
   if (data?.status !== 200) {
@@ -29,6 +32,23 @@ export default function SystemPanel() {
   const { members, joinCode } = data.data;
   const joinLink = joinCode ? `${window.location.origin}/join/${encodeURIComponent(joinCode)}` : null;
 
+  // Makes the first link, or replaces the current one. The old code stops working on the server
+  // as soon as this succeeds, so the overview is reloaded to show the new link.
+  const generateLink = () => {
+    setLinkError(false);
+    regenerate.mutate(undefined, {
+      onSuccess: (res) => {
+        if (res.status !== 200) {
+          setLinkError(true);
+          return;
+        }
+        setCopied(false);
+        queryClient.invalidateQueries({ queryKey: getGetSystemOverviewQueryKey() });
+      },
+      onError: () => setLinkError(true),
+    });
+  };
+
   return (
     <>
       <h1>All users</h1>
@@ -38,6 +58,7 @@ export default function SystemPanel() {
       </p>
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Company invite link</h2>
+        {linkError && <div className="notice err">The link could not be generated. Try again.</div>}
         {joinLink ? (
           <>
             <p className="muted">
@@ -54,14 +75,36 @@ export default function SystemPanel() {
                 }}
               >
                 {copied ? "Copied" : "Copy"}
+              </button>{" "}
+              <button
+                className="btn ghost sm"
+                type="button"
+                disabled={regenerate.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Make a new invite link? The current link will stop working for anyone who has not joined yet. Anyone who already joined stays signed in.",
+                    )
+                  ) {
+                    generateLink();
+                  }
+                }}
+              >
+                Generate a new link
               </button>
             </p>
           </>
         ) : (
-          <p className="muted">
-            Joining is switched off: the <span className="code">JOIN_CODE</span> setting is not set
-            on the server.
-          </p>
+          <>
+            <p className="muted">
+              Joining is switched off: there is no invite link yet. Generate one to let people join.
+            </p>
+            <p>
+              <button className="btn sm" type="button" disabled={regenerate.isPending} onClick={generateLink}>
+                Generate invite link
+              </button>
+            </p>
+          </>
         )}
       </div>
       <div className="panel" style={{ padding: 0, overflowX: "auto" }}>

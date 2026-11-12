@@ -1083,7 +1083,8 @@ pub struct SystemMemberRow {
 #[serde(rename_all = "camelCase")]
 pub struct SystemOverview {
     pub members: Vec<SystemMemberRow>,
-    /// The company join code (`JOIN_CODE`), or null when joining is switched off.
+    /// The company join code an admin generated (or the fixed `JOIN_CODE` if none has been
+    /// generated yet), or null when joining is switched off.
     #[schema(required)]
     pub join_code: Option<String>,
 }
@@ -1126,9 +1127,11 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
             created_at: user.created_at,
         })
         .collect();
-    let join_code = std::env::var("JOIN_CODE")
-        .ok()
-        .map(|code| code.trim().to_string())
-        .filter(|code| !code.is_empty());
+    // The generated code is the one to share; the fixed `JOIN_CODE` is shown only until an admin
+    // generates one.
+    let join_code = match crate::auth::active_join_code(db).await? {
+        Some(code) => Some(code),
+        None => crate::auth::fixed_join_code(),
+    };
     Ok(SystemOverview { members, join_code })
 }

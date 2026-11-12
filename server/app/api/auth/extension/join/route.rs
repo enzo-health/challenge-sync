@@ -67,7 +67,8 @@ pub async fn post(
     if urn.is_empty() || urn.len() > 200 || urn.starts_with("pending:") {
         return Err(ApiError::bad_request("a LinkedIn identity is required"));
     }
-    if !req.join_code.as_deref().is_some_and(join_code_matches) {
+    let join_code = req.join_code.as_deref().unwrap_or("");
+    if !join_code_matches(&mut db, join_code).await? {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "open your company's invite link first",

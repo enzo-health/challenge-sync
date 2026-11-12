@@ -7,17 +7,20 @@ original proposal, kept for the reasoning.
 
 - **No password.** A signed-out visitor sees a get-started page (`/auth/login`) with two steps:
   get the extension, and be logged in to LinkedIn. The page signs itself in when both are true.
-- **One company join link**, `/join/<code>`, where the code is the `JOIN_CODE` environment
-  variable. The page stores the code in a `join_code` cookie; the extension reads it and presents
-  it with the person's LinkedIn identity to `POST /api/auth/extension/join`, which creates the
-  account on first use and signs in to it afterwards. Rotating the link means changing the
-  variable and redeploying.
+- **One company join link**, `/join/<code>`. An admin generates the code on the All users page
+  (`POST /api/system/join-link`) and it is stored in the database (`join_links`). Generating a
+  new one replaces it, and the old link stops working for anyone who has not joined yet; people
+  already signed in are unaffected. The `JOIN_CODE` environment variable is optional: when set, it
+  is an extra fixed code that also works, for the tests and for letting the first people in before
+  anyone has generated a link. The page stores the code in a `join_code` cookie; the extension
+  reads it and presents it with the person's LinkedIn identity to `POST /api/auth/extension/join`,
+  which creates the account on first use and signs in to it afterwards.
 - **Website session from the extension.** `POST /api/auth/device/web-session` turns the device
   sync token into a session, and the extension writes the cookie into the browser itself.
 - **Page to extension.** `extension/bridge.js` is a content script on the site that relays the
   get-started page's status question to the service worker. Only status flags cross the page.
 - **Admins.** The system-admin flag is "admin". An admin can grant or remove it for others from
-  the All users page, which also shows the join link. The first admin is set in the database.
+  the All users page, which also shows, generates and replaces the join link. The first admin is set in the database.
 - **Kept:** the email and password login, at `/auth/password`, for accounts that have one. The
   signup page is gone; the signup API remains for the tests and is still limited to enzo.health.
 
