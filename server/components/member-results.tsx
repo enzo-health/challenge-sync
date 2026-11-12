@@ -29,8 +29,9 @@ function Metric({ label, value, sub }: { label: string; value: number; sub?: str
   );
 }
 
-function Post({ post, showMedia }: { post: PostStat; showMedia: boolean }) {
-  const total = post.impressionsInNetwork + post.impressionsOutOfNetwork;
+/** Post text clamped to three lines, with a "show more" toggle when it is longer. Also used by
+ * the admin Reports page, so a post reads the same everywhere. */
+export function PostText({ text }: { text: string | null | undefined }) {
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
@@ -38,19 +39,18 @@ function Post({ post, showMedia }: { post: PostStat; showMedia: boolean }) {
   useEffect(() => {
     setExpanded(false);
     setCanExpand(false);
-  }, [post.id, post.textPreview]);
+  }, [text]);
 
   useEffect(() => {
-    const text = textRef.current;
-    if (!text || expanded) return;
-    setCanExpand(text.scrollHeight > text.clientHeight + 1);
-  }, [expanded, post.textPreview]);
+    const element = textRef.current;
+    if (!element || expanded) return;
+    setCanExpand(element.scrollHeight > element.clientHeight + 1);
+  }, [expanded, text]);
 
   return (
-    <div className="post">
-      {post.isRepost && <span className="post-kind">Repost</span>}
+    <>
       <p ref={textRef} className={`post-text${expanded ? "" : " collapsed"}`}>
-        {post.textPreview || <span className="muted">(no post text)</span>}
+        {text || <span className="muted">(no post text)</span>}
       </p>
       {canExpand && (
         <button
@@ -62,6 +62,18 @@ function Post({ post, showMedia }: { post: PostStat; showMedia: boolean }) {
           {expanded ? "Show less" : "…show more"}
         </button>
       )}
+    </>
+  );
+}
+
+function Post({ post, showMedia }: { post: PostStat; showMedia: boolean }) {
+  const total = post.impressionsInNetwork + post.impressionsOutOfNetwork;
+
+  return (
+    <div className="post">
+      {post.isRepost && <span className="post-kind">Repost</span>}
+      {/* Keyed by post so switching posts starts collapsed, as it did before this was shared. */}
+      <PostText key={post.id} text={post.textPreview} />
       {showMedia && post.imageUrls.length > 0 && (
         <div className={`post-media count-${Math.min(post.imageUrls.length, 4)}`}>
           {post.imageUrls.map((url, index) => (

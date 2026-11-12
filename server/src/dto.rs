@@ -920,6 +920,12 @@ fn clone_stat(s: &PostStat) -> PostStat {
     }
 }
 
+/// Case-insensitive search of a post's text; `needle` must already be lowercase. A post with no
+/// stored text never matches. Shared by the post explorer and the admin report.
+pub fn post_text_contains(text: Option<&str>, needle: &str) -> bool {
+    text.is_some_and(|text| text.to_lowercase().contains(needle))
+}
+
 pub async fn user_posts(
     db: &mut Db,
     member_id: i64,
@@ -939,13 +945,7 @@ pub async fn user_posts(
         .filter(|value| !value.is_empty())
         .map(str::to_lowercase);
     if let Some(needle) = needle {
-        posts.retain(|post| {
-            post.text_preview
-                .as_deref()
-                .unwrap_or_default()
-                .to_lowercase()
-                .contains(&needle)
-        });
+        posts.retain(|post| post_text_contains(post.text_preview.as_deref(), &needle));
     }
     posts.sort_by(|a, b| {
         let order = match post_sort {

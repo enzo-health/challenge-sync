@@ -15,8 +15,8 @@ use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use http::HeaderMap;
 use toasty::Db;
 
-use crate::models::{AdminSession, DeviceToken, JoinLink, Member};
-use crate::util::{hash_bearer_token, new_bearer_token, now_unix};
+use crate::models::{AdminSession, ApiKey, DeviceToken, JoinLink, Member};
+use crate::util::{API_KEY_PREFIX, hash_bearer_token, new_api_key, new_bearer_token, now_unix};
 
 /// Session lifetime (30 days), applied to both the cookie and the stored row.
 pub const SESSION_SECS: i64 = 30 * 86400;
@@ -370,6 +370,64 @@ pub async fn member_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<Memb
         .flatten()
 }
 
+// --- reporting API keys ----------------------------------------------------------------------
+
+/// Whether the request carries an `Authorization: Bearer ...` header at all.
+pub fn has_bearer(headers: &HeaderMap) -> bool {
+    bearer_token(headers).is_some()
+}
+
+/// The API key this request presents, or None when it is missing, unknown, or revoked.
+///
+/// Only `api_keys` is consulted, so a sync token is never accepted here; and `member_from_bearer`
+/// never looks at `api_keys`, so a key cannot sync. A key also stops working when the admin who
+/// created it is no longer an admin: it carries their access, not its own.
+pub async fn api_key_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<ApiKey> {
+    let raw = bearer_token(headers)?.trim();
+    if !raw.starts_with(API_KEY_PREFIX) {
+        return None;
+    }
+    let hash = hash_bearer_token(raw);
+    let key = ApiKey::filter_by_key_hash(&hash)
+        .first()
+        .exec(&mut *db)
+        .await
+        .ok()??;
+    let creator = Member::filter_by_id(key.created_by)
+        .first()
+        .exec(&mut *db)
+        .await
+        .ok()??;
+    if !creator.is_system_admin {
+        return None;
+    }
+    // Best effort: a failed bookkeeping write must not fail the read itself.
+    let _ = toasty::update!(ApiKey::filter_by_id(key.id) { last_used_at: Some(now_unix()) })
+        .exec(&mut *db)
+        .await;
+    Some(key)
+}
+
+/// Make a new API key and store its hash. Returns the stored row and the key, which is never
+/// retrievable again.
+pub async fn create_api_key(
+    db: &mut Db,
+    name: &str,
+    created_by: i64,
+) -> toasty::Result<(ApiKey, String)> {
+    let (secret, key_hash) = new_api_key();
+    let key = toasty::create!(ApiKey {
+        name,
+        key_hash,
+        created_by,
+        created_at: now_unix(),
+        last_used_at: None,
+    })
+    .exec(&mut *db)
+    .await?;
+    Ok((key, secret))
+}
+
 /// Mint a sync token for one more device of `member_id`, leaving every existing device linked.
 pub async fn issue_device_token(db: &mut Db, member_id: i64) -> toasty::Result<String> {
     let (secret, token_hash) = new_bearer_token();
@@ -401,6 +459,16 @@ mod tests {
         // An unset variable must not turn the empty string into a valid code.
         assert!(!join_code_matches_expected("", ""));
         assert!(!join_code_matches_expected("anything", ""));
+    }
+
+    #[test]
+    fn api_keys_are_recognisable_and_stored_only_as_a_hash() {
+        let (key, hash) = crate::util::new_api_key();
+        assert!(key.starts_with("csk_") && key.len() > 40);
+        assert_eq!(hash, crate::util::hash_bearer_token(&key));
+        assert_ne!(hash, key);
+        let (sync_token, _) = crate::util::new_bearer_token();
+        assert!(!sync_token.starts_with(crate::util::API_KEY_PREFIX));
     }
 
     #[test]

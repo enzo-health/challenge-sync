@@ -34,6 +34,7 @@ const LABELS: Record<string, string> = {
   "/challenges/mine": "My challenge overview",
   "/challenges/new": "Create a challenge",
   "/system": "All users",
+  "/reports": "Post reports",
 };
 const label = (href: string) => LABELS[href] ?? href;
 
@@ -127,6 +128,7 @@ function Sidebar() {
                 <>
                   <div className="nav-section">System</div>
                   <NavLink href="/system" pathname={pathname} />
+                  <NavLink href="/reports" pathname={pathname} />
                 </>
               )}
             </>

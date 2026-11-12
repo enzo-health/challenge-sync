@@ -10,7 +10,8 @@ use nextrs::conventions::MiddlewareResult;
 /// Reachable without a session:
 ///  * the get-started page, the password fallback, and the company join link;
 ///  * the auth API those surfaces post to;
-///  * the extension protocol, which authenticates with a bearer sync token instead of the cookie.
+///  * the extension protocol, which authenticates with a bearer sync token instead of the cookie;
+///  * the reporting API, which authenticates with a bearer API key.
 fn is_public(path: &str) -> bool {
     matches!(path, "/auth/login" | "/auth/password" | "/auth/join" | "/privacy")
         // The company join link. The code is in the path so the link can be pasted anywhere.
@@ -21,6 +22,9 @@ fn is_public(path: &str) -> bool {
         || path == "/api/link"
         || path == "/api/sync"
         || path == "/api/me/sync-status"
+        // The reporting API: an admin's agent calls it with an API key, not a cookie. The handler
+        // checks the key (or an admin session) itself.
+        || path == "/api/v1/posts"
         // Bundles, stylesheet, favicons. Blocking these would break the login page itself.
         || path.starts_with("/dist/")
         || path.starts_with("/favicon.")

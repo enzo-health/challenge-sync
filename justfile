@@ -87,6 +87,7 @@ check:
     python3 server/scripts/test-followers-e2e.py
     python3 server/scripts/test-sync-devices-e2e.py
     python3 server/scripts/test-extension-join-e2e.py
+    python3 server/scripts/test-reports-e2e.py
     node scripts/test-extension-e2e.mjs
     node scripts/test-join-flow-e2e.mjs
     git diff --check
@@ -121,6 +122,11 @@ test-sync-devices-e2e:
 test-extension-join-e2e:
     cd server && cargo build --bin linkedin-challenge-server
     python3 server/scripts/test-extension-join-e2e.py
+
+# Verify the admin post report, API keys and /api/v1/posts (filters, CSV) on an isolated database.
+test-reports-e2e:
+    cd server && cargo build --bin linkedin-challenge-server
+    python3 server/scripts/test-reports-e2e.py
 
 # Exercise password auth against a real server and isolated temporary database.
 test-auth-e2e:

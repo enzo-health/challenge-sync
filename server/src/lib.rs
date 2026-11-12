@@ -5,6 +5,7 @@ pub mod auth;
 pub mod dto;
 pub mod enroll;
 pub mod models;
+pub mod reports;
 pub mod scoring;
 pub mod seed;
 pub mod util;

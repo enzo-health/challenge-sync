@@ -53,6 +53,18 @@ pub fn parse_date(s: &str) -> Option<i64> {
     Some(days_from_civil(year, month, day) * 86400)
 }
 
+/// Format unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (UTC), the form spreadsheets and scripts read.
+pub fn fmt_iso8601(unix: i64) -> String {
+    let secs = unix.rem_euclid(86400);
+    format!(
+        "{}T{:02}:{:02}:{:02}Z",
+        fmt_date(unix),
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
 /// Format unix seconds as `YYYY-MM-DD` (UTC).
 pub fn fmt_date(unix: i64) -> String {
     let (y, m, d) = civil_from_days(unix.div_euclid(86400));
@@ -115,6 +127,20 @@ pub fn new_bearer_token() -> (String, String) {
     let mut raw = [0u8; 32];
     rand::thread_rng().fill(&mut raw);
     let secret = format!("st_{}", base64_url(&raw));
+    let hash = sha256_hex(secret.as_bytes());
+    (secret, hash)
+}
+
+/// Prefix of every reporting API key, so a key is recognisable on sight and never confused with a
+/// sync token (`st_`).
+pub const API_KEY_PREFIX: &str = "csk_";
+
+/// A random reporting API key, returned as (key, stored_hash). Same strength and hashing as a
+/// sync token; only the prefix differs.
+pub fn new_api_key() -> (String, String) {
+    let mut raw = [0u8; 32];
+    rand::thread_rng().fill(&mut raw);
+    let secret = format!("{API_KEY_PREFIX}{}", base64_url(&raw));
     let hash = sha256_hex(secret.as_bytes());
     (secret, hash)
 }

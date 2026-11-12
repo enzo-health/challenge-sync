@@ -1,0 +1,364 @@
+// Admin post reports: everyone's posts from a period, filtered by impressions, who posted, and a
+// CSV export. The same report is served to an admin's AI agent at /api/v1/posts with an API key,
+// and the keys are managed at the bottom of this page. Reachable only with the admin flag.
+import {
+  getGetPostReportUrl,
+  getListApiKeysQueryKey,
+  useCreateApiKey,
+  useGetPostReport,
+  useListApiKeys,
+  useRevokeApiKey,
+} from "@linkedin-challenge/client/react-query";
+import type { GetPostReportParams } from "@linkedin-challenge/client/react-query";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
+import { fmtDate, fmtInt, initials } from "../../components/format";
+import { PostText } from "../../components/member-results";
+
+// The report's days are UTC calendar days, so the defaults are computed in UTC too: a local date
+// would be a day off for part of every day west or east of Greenwich.
+function utcDay(offsetDays: number): string {
+  return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+}
+
+type Form = { since: string; until: string; minImpressions: string; minOutOfNetwork: string; contains: string };
+
+function toParams(form: Form): GetPostReportParams {
+  const params: GetPostReportParams = { since: form.since, until: form.until };
+  // Empty boxes mean "no minimum"; sending them would be a 400 for a number that is not one.
+  if (form.minImpressions.trim()) params.minImpressions = Number(form.minImpressions);
+  if (form.minOutOfNetwork.trim()) params.minOutOfNetworkImpressions = Number(form.minOutOfNetwork);
+  if (form.contains.trim()) params.contains = form.contains.trim();
+  return params;
+}
+
+const num = (n: number | null) => (n == null ? "—" : fmtInt(n));
+
+export default function Reports() {
+  const [form, setForm] = useState<Form>({
+    since: utcDay(-6),
+    until: utcDay(0),
+    minImpressions: "",
+    minOutOfNetwork: "",
+    contains: "",
+  });
+  const [params, setParams] = useState<GetPostReportParams>(() => toParams(form));
+  // Keep the last result on screen while a new one loads, instead of blanking the page.
+  const { data, isLoading, isFetching } = useGetPostReport(params, {
+    query: { placeholderData: keepPreviousData },
+  });
+
+  const run = (event: FormEvent) => {
+    event.preventDefault();
+    setParams(toParams(form));
+  };
+  const field = (key: keyof Form) => ({
+    value: form[key],
+    onChange: (event: { target: { value: string } }) => setForm({ ...form, [key]: event.target.value }),
+  });
+
+  if (isLoading) return <div className="spinner">Loading…</div>;
+  if (data?.status === 401) {
+    return (
+      <div className="empty">
+        Your session expired. <a href="/auth/login">Log in again</a>.
+      </div>
+    );
+  }
+
+  const report = data?.status === 200 ? data.data : null;
+  const error = data && data.status !== 200 ? data.data.error : null;
+  const filtered =
+    params.minImpressions != null || params.minOutOfNetworkImpressions != null || params.contains != null;
+
+  return (
+    <>
+      <h1>Post reports</h1>
+      <p className="lede">
+        Everyone&rsquo;s posts from a period, with their latest numbers. Dates are UTC days and both
+        ends are included. &ldquo;Post mentions&rdquo; ignores case. Leave the filters empty to see
+        everyone who posted.
+      </p>
+
+      <form className="panel" onSubmit={run}>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+          <label className="field">
+            <span>From</span>
+            <input type="date" required {...field("since")} />
+          </label>
+          <label className="field">
+            <span>To</span>
+            <input type="date" required {...field("until")} />
+          </label>
+          <label className="field">
+            <span>Minimum impressions</span>
+            <input type="number" min={0} step={1} placeholder="Any" {...field("minImpressions")} />
+          </label>
+          <label className="field">
+            <span>Minimum out-of-network impressions</span>
+            <input type="number" min={0} step={1} placeholder="Any" {...field("minOutOfNetwork")} />
+          </label>
+          <label className="field">
+            <span>Post mentions</span>
+            <input type="search" placeholder="e.g. Enzo" {...field("contains")} />
+          </label>
+        </div>
+        <p style={{ margin: 0 }}>
+          <button type="submit" disabled={isFetching}>
+            {isFetching ? "Loading…" : "Show posts"}
+          </button>{" "}
+          {/* The download comes from the server with the filters shown, not from this table, so
+              the file is exactly what an agent gets with format=csv. */}
+          <a className="btn ghost" href={getGetPostReportUrl({ ...params, format: "csv" })} download>
+            Export CSV
+          </a>
+        </p>
+      </form>
+
+      {error && <div className="notice err">{error}</div>}
+
+      {report && (
+        <>
+          <div className="grid cols-3" style={{ marginBottom: 16 }}>
+            <div className="stat">
+              <div className="k">{filtered ? "Matching posts" : "Posts"}</div>
+              <div className="v">{fmtInt(report.postCount)}</div>
+            </div>
+            <div className="stat">
+              <div className="k">People who posted</div>
+              <div className="v">{fmtInt(report.authors.length)}</div>
+            </div>
+            <div className="stat">
+              <div className="k">Period</div>
+              <div className="v" style={{ fontSize: 16 }}>
+                {fmtDate(Date.parse(report.filters.since) / 1000)} – {fmtDate(Date.parse(report.filters.until) / 1000)}
+              </div>
+            </div>
+          </div>
+
+          <h2>Posts</h2>
+          <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
+            {report.posts.length === 0 ? (
+              <div className="empty">No posts match these filters.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Author</th>
+                    <th>Post</th>
+                    <th>Date</th>
+                    <th className="num">Impressions</th>
+                    <th className="num">Out of network</th>
+                    <th className="num">Reactions</th>
+                    <th className="num">Comments</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.posts.map((post) => (
+                    <tr key={post.postId}>
+                      <td>
+                        <span className="who">
+                          <span className="avatar">{initials(post.authorName)}</span>
+                          <span>{post.authorName}</span>
+                        </span>
+                      </td>
+                      {/* The whole text, clamped to three lines with "show more": deciding whether a
+                          post is about Enzo means reading it. */}
+                      <td className="small" style={{ minWidth: 280, maxWidth: 480 }}>
+                        {post.isRepost && <span className="post-kind">Repost</span>}
+                        <PostText key={post.postId} text={post.text} />
+                        <a href={post.postUrl} target="_blank" rel="noreferrer">
+                          View on LinkedIn
+                        </a>
+                      </td>
+                      <td className="small muted">{fmtDate(post.postedAtUnix)}</td>
+                      <td className="num">{num(post.impressions)}</td>
+                      <td className="num">{num(post.impressionsOutOfNetwork)}</td>
+                      <td className="num">{num(post.reactions)}</td>
+                      <td className="num">{num(post.comments)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <h2>Who posted</h2>
+          <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
+            {report.authors.length === 0 ? (
+              <div className="empty">Nobody posted in this period.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Person</th>
+                    <th className="num">Posts in period</th>
+                    {filtered && <th className="num">Matching</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.authors.map((author) => (
+                    <tr key={author.memberId}>
+                      <td>
+                        <span className="who">
+                          <span className="avatar">{initials(author.displayName)}</span>
+                          <span>{author.displayName}</span>
+                        </span>
+                      </td>
+                      <td className="num">{fmtInt(author.postsInPeriod)}</td>
+                      {filtered && <td className="num">{fmtInt(author.matchingPosts)}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+
+      <ApiKeys />
+    </>
+  );
+}
+
+function ApiKeys() {
+  const { data } = useListApiKeys();
+  const create = useCreateApiKey();
+  const revoke = useRevokeApiKey();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const keys = data?.status === 200 ? data.data.keys : [];
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getListApiKeysQueryKey() });
+  const origin = window.location.origin;
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    create.mutate(
+      { data: { name } },
+      {
+        onSuccess: (res) => {
+          if (res.status !== 200) {
+            setError(res.data.error);
+            return;
+          }
+          setCreated({ name: res.data.name, key: res.data.key });
+          setCopied(false);
+          setName("");
+          refresh();
+        },
+        onError: () => setError("The key could not be created. Try again."),
+      },
+    );
+  };
+
+  return (
+    <>
+      <h2>API keys</h2>
+      <div className="panel">
+        <p className="muted" style={{ marginTop: 0 }}>
+          Give a key to an AI agent or a script so it can fetch this report itself. A key can read
+          everyone&rsquo;s post data, so share it only with something you trust, and revoke it when
+          it is no longer needed. Instructions for the agent are in{" "}
+          <span className="code">docs/reporting-api.md</span>.
+        </p>
+
+        {created && (
+          <div className="notice ok">
+            <p style={{ marginTop: 0 }}>
+              <strong>{created.name}</strong>: copy this key now. It will not be shown again.
+            </p>
+            <p style={{ marginBottom: 0 }}>
+              <span className="code" style={{ wordBreak: "break-all" }}>{created.key}</span>{" "}
+              <button
+                className="btn ghost sm"
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(created.key).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </p>
+          </div>
+        )}
+        {error && <div className="notice err">{error}</div>}
+
+        <form onSubmit={submit} style={{ display: "flex", gap: 8, alignItems: "end", marginBottom: 16 }}>
+          <label className="field" style={{ flex: 1, marginBottom: 0 }}>
+            <span>Name, so you know which key is which</span>
+            <input
+              value={name}
+              maxLength={100}
+              required
+              placeholder="e.g. Jason's agent"
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <button type="submit" disabled={create.isPending || !name.trim()}>
+            Create key
+          </button>
+        </form>
+
+        {keys.length === 0 ? (
+          <p className="muted">No API keys yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((key) => (
+                <tr key={key.id}>
+                  <td>{key.name}</td>
+                  <td className="small muted">
+                    {fmtDate(key.createdAt)}
+                    {key.createdByName ? ` by ${key.createdByName}` : ""}
+                  </td>
+                  <td className="small muted">{key.lastUsedAt ? fmtDate(key.lastUsedAt) : "never"}</td>
+                  <td className="num">
+                    <button
+                      className="btn ghost sm"
+                      type="button"
+                      disabled={revoke.isPending}
+                      onClick={() => {
+                        if (window.confirm(`Revoke "${key.name}"? Anything using it stops working at once.`)) {
+                          revoke.mutate({ id: key.id }, { onSuccess: refresh });
+                        }
+                      }}
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <h3>Example</h3>
+        <p className="muted small">
+          Posts in the past week that mention Enzo with at least 3,000 out-of-network impressions:
+        </p>
+        <pre className="code" style={{ display: "block", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          {`curl -H "Authorization: Bearer $CHALLENGE_API_KEY" \\\n  "${origin}/api/v1/posts?contains=enzo&minOutOfNetworkImpressions=3000"`}
+        </pre>
+        <p className="muted small">
+          Who posted this week (see <code>authors</code> in the response), or the same as a spreadsheet
+          with <code>&amp;format=csv</code>:
+        </p>
+        <pre className="code" style={{ display: "block", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          {`curl -H "Authorization: Bearer $CHALLENGE_API_KEY" \\\n  "${origin}/api/v1/posts"`}
+        </pre>
+      </div>
+    </>
+  );
+}

@@ -307,14 +307,7 @@ impl Dataset {
         }
 
         if !post_ids.is_empty() {
-            let mut snapshots =
-                PostSnapshot::filter(PostSnapshot::fields().post_id().in_list(post_ids.clone()))
-                    .exec(&mut *db)
-                    .await?;
-            snapshots.sort_by_key(|s| s.captured_at);
-            for snapshot in snapshots {
-                data.snapshots_by_post.entry(snapshot.post_id).or_default().push(snapshot);
-            }
+            data.load_snapshots(db, post_ids.clone()).await?;
             for comment in
                 PostComment::filter(PostComment::fields().post_id().in_list(post_ids))
                     .exec(&mut *db)
@@ -334,6 +327,71 @@ impl Dataset {
             data.profile_by_member.entry(profile.member_id).or_default().push(profile);
         }
         Ok(data)
+    }
+
+    /// Load the posts published in `[start, end)` (optionally one member's), only those posts'
+    /// snapshots, and their authors — for reports across everyone, where loading every member's
+    /// whole history (as [`Dataset::load`] does) would read most of `post_snapshots`. Comments and
+    /// profile readings are not loaded. Three queries.
+    ///
+    /// A post stored without a creation time (0) is dated by its first snapshot, as
+    /// [`Dataset::posted_at`] does everywhere else, so those are fetched too and then dropped
+    /// unless that first snapshot falls in the period.
+    pub async fn load_posted_between(
+        db: &mut Db,
+        start: i64,
+        end: i64,
+        member_id: Option<i64>,
+    ) -> toasty::Result<Self> {
+        let mut data = Self::default();
+        let created = Post::fields().created_at();
+        let mut condition = created
+            .clone()
+            .ge(start)
+            .and(created.clone().lt(end))
+            .or(created.eq(0));
+        if let Some(member_id) = member_id {
+            condition = Post::fields().member_id().eq(member_id).and(condition);
+        }
+        let posts = Post::filter(condition).exec(&mut *db).await?;
+        if posts.is_empty() {
+            return Ok(data);
+        }
+        data.load_snapshots(db, posts.iter().map(|p| p.id).collect()).await?;
+
+        let mut member_ids = Vec::new();
+        for post in posts {
+            let in_period = data.posted_at(&post).is_some_and(|at| at >= start && at < end);
+            if !in_period {
+                data.snapshots_by_post.remove(&post.id);
+                continue;
+            }
+            member_ids.push(post.member_id);
+            data.posts_by_member.entry(post.member_id).or_default().push(post);
+        }
+        member_ids.sort_unstable();
+        member_ids.dedup();
+        if !member_ids.is_empty() {
+            for member in Member::filter(Member::fields().id().in_list(member_ids))
+                .exec(&mut *db)
+                .await?
+            {
+                data.members.insert(member.id, member);
+            }
+        }
+        Ok(data)
+    }
+
+    /// Fetch the snapshots of these posts in one query, oldest first per post.
+    async fn load_snapshots(&mut self, db: &mut Db, post_ids: Vec<i64>) -> toasty::Result<()> {
+        let mut snapshots = PostSnapshot::filter(PostSnapshot::fields().post_id().in_list(post_ids))
+            .exec(&mut *db)
+            .await?;
+        snapshots.sort_by_key(|s| s.captured_at);
+        for snapshot in snapshots {
+            self.snapshots_by_post.entry(snapshot.post_id).or_default().push(snapshot);
+        }
+        Ok(())
     }
 
     /// Load everyone who joined `comp`, plus their data. Six queries.
