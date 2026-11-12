@@ -1083,6 +1083,9 @@ pub struct SystemMemberRow {
 #[serde(rename_all = "camelCase")]
 pub struct SystemOverview {
     pub members: Vec<SystemMemberRow>,
+    /// The company join code (`JOIN_CODE`), or null when joining is switched off.
+    #[schema(required)]
+    pub join_code: Option<String>,
 }
 
 /// Every account, for the hand-operated product support panel.
@@ -1123,5 +1126,9 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
             created_at: user.created_at,
         })
         .collect();
-    Ok(SystemOverview { members })
+    let join_code = std::env::var("JOIN_CODE")
+        .ok()
+        .map(|code| code.trim().to_string())
+        .filter(|code| !code.is_empty());
+    Ok(SystemOverview { members, join_code })
 }

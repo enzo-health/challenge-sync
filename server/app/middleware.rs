@@ -8,11 +8,13 @@ use linkedin_challenge_server::auth::{SESSION_COOKIE, cookie};
 use nextrs::conventions::MiddlewareResult;
 
 /// Reachable without a session:
-///  * the login and account-creation pages;
+///  * the get-started page, the password fallback, and the company join link;
 ///  * the auth API those surfaces post to;
 ///  * the extension protocol, which authenticates with a bearer sync token instead of the cookie.
 fn is_public(path: &str) -> bool {
-    matches!(path, "/auth/login" | "/auth/signup" | "/auth/join" | "/privacy")
+    matches!(path, "/auth/login" | "/auth/password" | "/auth/join" | "/privacy")
+        // The company join link. The code is in the path so the link can be pasted anywhere.
+        || path.starts_with("/join/")
         || path.starts_with("/api/auth/")
         // Liveness must answer without a session, or a load balancer sees a redirect.
         || path == "/api/health"

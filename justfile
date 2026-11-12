@@ -46,6 +46,7 @@ extension-release server_url:
 deploy-check:
     node --check extension/api.js
     node --check extension/background.js
+    node --check extension/bridge.js
     node --check extension/config.js
     node --check extension/linkedin.js
     node --check extension/popup.js
@@ -71,6 +72,7 @@ check:
     cd server && cargo test
     node --check extension/api.js
     node --check extension/background.js
+    node --check extension/bridge.js
     node --check extension/config.js
     node --check extension/linkedin.js
     node --check extension/popup.js
@@ -81,6 +83,7 @@ check:
     server/scripts/test-auth-e2e.sh
     python3 server/scripts/test-followers-e2e.py
     python3 server/scripts/test-sync-devices-e2e.py
+    python3 server/scripts/test-extension-join-e2e.py
     node scripts/test-extension-e2e.mjs
     git diff --check
 
@@ -103,6 +106,11 @@ test-extension-e2e: extension-dev
 test-sync-devices-e2e:
     cd server && cargo build --bin linkedin-challenge-server
     python3 server/scripts/test-sync-devices-e2e.py
+
+# Verify no-password sign-in (join code, device token to website session) and the admin toggle.
+test-extension-join-e2e:
+    cd server && cargo build --bin linkedin-challenge-server
+    python3 server/scripts/test-extension-join-e2e.py
 
 # Exercise password auth against a real server and isolated temporary database.
 test-auth-e2e:

@@ -9,6 +9,9 @@ export const SERVER_URL = "http://localhost:3312";
 /// Name of the session cookie the website sets — see `SESSION_COOKIE` in server/src/auth.rs.
 export const SESSION_COOKIE = "session";
 
+/// Name of the cookie the site's `/join/<code>` page sets with the company join code.
+export const JOIN_COOKIE = "join_code";
+
 // How often the worker CHECKS whether a sync is due, in minutes. This is deliberately frequent:
 // a laptop that is only open now and then never lands on a 12-hour clock mark, so the question
 // "has it been long enough?" is asked often and answered by MIN_SYNC_INTERVAL_MINUTES below.

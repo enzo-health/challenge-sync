@@ -4,8 +4,9 @@
 #   ./build.sh https://challenge.example.com        -> dist/challenge-sync-<version>.zip
 #   ./build.sh http://localhost:3312 --dir          -> dist/unpacked/ (load unpacked, no zip)
 #
-# The server URL is a build-time constant, in TWO places that must agree: SERVER_URL in config.js
-# and the matching entry in manifest.json's host_permissions. The extension reads the site's
+# The server URL is a build-time constant, in THREE places that must agree: SERVER_URL in
+# config.js, the matching entry in manifest.json's host_permissions, and the content script's
+# `matches`. The extension reads the site's
 # session cookie, and Chrome only allows that for an origin the manifest declares — so a build with
 # one updated and not the other fails to connect with no useful message. This script writes both
 # from a single argument, which is the whole reason it exists.
@@ -48,6 +49,9 @@ hosts = [h for h in manifest["host_permissions"] if "linkedin.com" in h]
 hosts.append(f"{url}/*")
 manifest["host_permissions"] = hosts
 manifest["homepage_url"] = url
+# The bridge content script runs on the server's pages only, so it follows the same origin.
+for script in manifest.get("content_scripts", []):
+    script["matches"] = [f"{url}/*"]
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 print(f"  server URL : {url}")
@@ -67,6 +71,9 @@ if not any(h.startswith(server) for h in hosts):
     raise SystemExit(f"MISMATCH: SERVER_URL {server} has no matching host_permission in {hosts}")
 if homepage != server:
     raise SystemExit(f"MISMATCH: SERVER_URL {server} does not match homepage_url {homepage}")
+bridge = [m for s in json.loads((out / "manifest.json").read_text()).get("content_scripts", []) for m in s["matches"]]
+if bridge != [f"{server}/*"]:
+    raise SystemExit(f"MISMATCH: SERVER_URL {server} does not match content script matches {bridge}")
 print("  verified   : config.js and manifest.json agree")
 PY
 

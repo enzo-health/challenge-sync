@@ -1,10 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Challenge Sync",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Privately syncs your own LinkedIn stats to your company's posting challenge. Reads your data only; never your password.",
   "homepage_url": "https://social-challenge.enzo.health",
-  "permissions": ["storage", "alarms", "cookies"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "cookies"
+  ],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "http://localhost:3312/*"
@@ -13,6 +17,17 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3312/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_title": "Challenge Sync",
     "default_popup": "popup.html"

@@ -2,7 +2,7 @@
 import { SYNC_CHECK_MINUTES, SYNC_JITTER_MINUTES, MIN_SYNC_INTERVAL_MINUTES } from "./config.js";
 import { getState, setState, isLinked } from "./storage.js";
 import { collectSnapshot, getMe, getPostFeed, getPostComments, getFollowerCount, diagnose, isLinkedInSignedIn } from "./linkedin.js";
-import { fetchSyncStatus, isAppSignedIn, linkIdentityToAccount, pushSnapshot, signInFromSession } from "./sync.js";
+import { ensureWebSession, fetchSyncStatus, joinWithLinkedIn, linkIdentityToAccount, pushSnapshot, readJoinCode, signInFromSession } from "./sync.js";
 import { SERVER_URL, LINKEDIN_ORIGIN } from "./config.js";
 
 const ALARM = "challenge-sync";
@@ -26,16 +26,28 @@ chrome.runtime.onInstalled.addListener(scheduleSync);
 chrome.runtime.onStartup.addListener(scheduleSync);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) ensureLinked().then(() => runSync()).catch(() => {});
+  if (alarm.name === ALARM) {
+    ensureLinked()
+      .then(() => ensureWebSession())
+      .then(() => runSync())
+      .catch(() => {});
+  }
 });
 
-// Linking needs nothing from the person beyond being signed in to both sites, so it happens by
-// itself the first time both sessions are present — on install, at each alarm, and whenever the
-// popup opens. Nothing is stored until the server has accepted the identity, so a failure here
-// leaves the install exactly as unlinked as before and the next attempt starts clean.
+// Linking needs no password. Being logged in to LinkedIn is the identity; the company's join
+// link (remembered by the site in a cookie) is the permission. It happens by itself on install,
+// at each alarm, whenever the popup opens, and whenever the site's get-started page asks.
+// Nothing is stored until the server has accepted the identity, so a failure here leaves the
+// install exactly as unlinked as before and the next attempt starts clean.
 //
-// Returns the linked account, or null with a reason the popup can show.
+// A browser that is already signed in on the site (a password account) links through that
+// session instead, exactly as before.
+//
+// Returns `{ ok: true }`, or `{ ok: false }` with the reason the popup and the site can show.
 let linking = null;
+// A join code the server has already refused. LinkedIn is asked who you are before each join
+// attempt, so retrying a known-bad code on every poll would be needless traffic to LinkedIn.
+let refusedJoinCode = null;
 async function ensureLinked() {
   if (await isLinked()) return { ok: true };
   if (linking) return linking; // popup and alarm may both ask at once; link once
@@ -43,16 +55,27 @@ async function ensureLinked() {
     try {
       if (!(await isLinkedInSignedIn())) return { ok: false, needsLinkedIn: true };
       const account = await signInFromSession();
-      if (!account) return { ok: false, needsSignIn: true };
+      const joinCode = account ? null : await readJoinCode();
+      if (!account && (!joinCode || joinCode === refusedJoinCode)) return { ok: false, needsInvite: true };
       const me = await getMe();
       if (!me.memberUrn) throw new Error("Couldn't read your LinkedIn profile. Open LinkedIn and log in first.");
-      const data = await linkIdentityToAccount(account.syncToken, {
+      const identity = {
         memberUrn: me.memberUrn,
         publicIdentifier: me.publicIdentifier,
         firstName: me.firstName,
         lastName: me.lastName,
         profileUrl: me.profileUrl,
-      });
+      };
+      let data;
+      if (account) {
+        data = await linkIdentityToAccount(account.syncToken, identity);
+      } else {
+        data = await joinWithLinkedIn(identity, joinCode);
+        if (data.needsInvite) {
+          refusedJoinCode = joinCode;
+          return { ok: false, needsInvite: true };
+        }
+      }
       await scheduleSync();
       // Kick off a first sync right away so the user sees data immediately.
       runSync({ manual: true }).catch(() => {});
@@ -142,6 +165,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           // the server's account-wide numbers over this device's local ones: a second device
           // otherwise reads "0 posts, never synced" while the first has been syncing for weeks.
           const link = await ensureLinked();
+          if (link.ok) ensureWebSession().catch(() => {});
           const state = await getState();
           let remote = null;
           if (state.syncToken) {
@@ -153,8 +177,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         case "PREFLIGHT": {
           // Both sessions are required, and they fail for different reasons with different fixes,
           // so report them separately rather than as one "not ready".
-          const [app, linkedIn] = await Promise.all([isAppSignedIn(), isLinkedInSignedIn()]);
-          sendResponse({ ok: true, appSignedIn: app, linkedInSignedIn: linkedIn, serverUrl: SERVER_URL });
+          const [joinCode, linkedIn] = await Promise.all([readJoinCode(), isLinkedInSignedIn()]);
+          sendResponse({ ok: true, hasInvite: Boolean(joinCode), linkedInSignedIn: linkedIn, serverUrl: SERVER_URL });
+          break;
+        }
+        case "PAGE_HELLO": {
+          // The site's get-started page, relayed by bridge.js. It only asks while it is signed
+          // out, so a session cookie that is still present is stale and gets replaced.
+          const link = await ensureLinked();
+          if (link.ok) await ensureWebSession({ force: true });
+          sendResponse({
+            ok: true,
+            linkedInSignedIn: await isLinkedInSignedIn(),
+            linked: Boolean(link.ok),
+            needsInvite: Boolean(link.needsInvite),
+            error: link.error || null,
+          });
           break;
         }
         case "OPEN_LINKEDIN":
@@ -176,6 +214,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case "OPEN_DASHBOARD":
+          // Sign the site in first, so the tab opens on the results rather than on get-started.
+          await ensureWebSession().catch(() => false);
           await chrome.tabs.create({ url: `${SERVER_URL}/me` });
           sendResponse({ ok: true });
           break;

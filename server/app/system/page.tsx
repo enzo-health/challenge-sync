@@ -1,11 +1,21 @@
 // The product operator's panel: every user and impersonation — the support tool for
 // "what is this user actually seeing?". Reachable only with the system-admin flag.
-import { useGetSystemOverview, useImpersonate } from "@linkedin-challenge/client/react-query";
+import {
+  getGetSystemOverviewQueryKey,
+  useGetSystemOverview,
+  useImpersonate,
+  useSetMemberAdmin,
+} from "@linkedin-challenge/client/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { fmtDate, fmtInt, initials } from "../../components/format";
 
 export default function SystemPanel() {
   const { data, isLoading } = useGetSystemOverview();
   const impersonate = useImpersonate();
+  const setAdmin = useSetMemberAdmin();
+  const queryClient = useQueryClient();
+  const [copied, setCopied] = useState(false);
 
   if (isLoading) return <div className="spinner">Loading…</div>;
   if (data?.status !== 200) {
@@ -16,15 +26,44 @@ export default function SystemPanel() {
     );
   }
 
-  const { members } = data.data;
+  const { members, joinCode } = data.data;
+  const joinLink = joinCode ? `${window.location.origin}/join/${encodeURIComponent(joinCode)}` : null;
 
   return (
     <>
       <h1>All users</h1>
       <p className="lede">
-        Every account on the platform. &ldquo;View as&rdquo; swaps your session for theirs — you
+        Every account on the platform. Admins can see this page, share the invite link, and make other people admins. &ldquo;View as&rdquo; swaps your session for theirs — you
         see exactly what they see, with a banner in the sidebar until you stop.
       </p>
+      <div className="panel">
+        <h2 style={{ marginTop: 0 }}>Company invite link</h2>
+        {joinLink ? (
+          <>
+            <p className="muted">
+              Share this one link with everyone. Opening it, installing the extension and being
+              logged in to LinkedIn is all it takes to join. Anyone who has the link can join.
+            </p>
+            <p>
+              <span className="code">{joinLink}</span>{" "}
+              <button
+                className="btn ghost sm"
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(joinLink).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </p>
+          </>
+        ) : (
+          <p className="muted">
+            Joining is switched off: the <span className="code">JOIN_CODE</span> setting is not set
+            on the server.
+          </p>
+        )}
+      </div>
       <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
             <table>
               <thead>
@@ -49,7 +88,7 @@ export default function SystemPanel() {
                     <td className="small muted">{m.email ?? "—"}</td>
                     <td className="small">
                       {m.isSystemAdmin ? (
-                        <span className="badge">system</span>
+                        <span className="badge">admin</span>
                       ) : m.ownsChallenge ? (
                         <span className="badge ok">challenge owner</span>
                       ) : (
@@ -61,6 +100,22 @@ export default function SystemPanel() {
                       {m.lastSyncedAt ? fmtDate(m.lastSyncedAt) : "never"}
                     </td>
                     <td className="num">
+                      <button
+                        className="btn ghost sm"
+                        type="button"
+                        disabled={setAdmin.isPending}
+                        onClick={() =>
+                          setAdmin.mutate(
+                            { id: m.id, data: { isAdmin: !m.isSystemAdmin } },
+                            {
+                              onSuccess: () =>
+                                queryClient.invalidateQueries({ queryKey: getGetSystemOverviewQueryKey() }),
+                            },
+                          )
+                        }
+                      >
+                        {m.isSystemAdmin ? "Remove admin" : "Make admin"}
+                      </button>{" "}
                       {!m.isSystemAdmin && (
                         <button
                           className="btn ghost sm"

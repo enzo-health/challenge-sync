@@ -613,3 +613,15 @@ table.ledger td:first-child { max-width: 360px; }
 .ledger-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin-top: 2px; }
 .ledger-dropped td { color: var(--muted); }
 .ledger-dropped .ledger-post a { color: var(--muted); }
+
+/* --- get started (signed-out front door) ---------------------------------------------------- */
+.start-steps { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 14px; }
+.start-step { display: flex; gap: 12px; align-items: flex-start; }
+.start-mark {
+  width: 24px; height: 24px; flex: none; border-radius: 50%; border: 2px solid var(--line);
+  display: grid; place-items: center; font-size: 13px; font-weight: 700; margin-top: 1px;
+}
+.start-step.done .start-mark { background: var(--ok); border-color: var(--ok); color: #fff; }
+.start-title { margin: 0; font-weight: 600; }
+.start-step.done .start-title { color: var(--muted); }
+.start-action { margin-top: 8px; }

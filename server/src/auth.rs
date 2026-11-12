@@ -19,7 +19,7 @@ use crate::models::{AdminSession, DeviceToken, Member};
 use crate::util::{hash_bearer_token, new_bearer_token, now_unix};
 
 /// Session lifetime (30 days), applied to both the cookie and the stored row.
-const SESSION_SECS: i64 = 30 * 86400;
+pub const SESSION_SECS: i64 = 30 * 86400;
 
 pub const SESSION_COOKIE: &str = "session";
 
@@ -227,6 +227,19 @@ pub async fn establish_session_as(
     member_id: i64,
     impersonator_id: Option<i64>,
 ) -> toasty::Result<String> {
+    let secret = new_session_token(db, member_id, impersonator_id).await?;
+    Ok(set_cookie(&secret))
+}
+
+/// Persist a new session and return its raw token.
+///
+/// The website gets this wrapped in `Set-Cookie`. The extension gets it bare, because it places
+/// the cookie in the browser's jar itself (see `/api/auth/device/web-session`).
+pub async fn new_session_token(
+    db: &mut Db,
+    member_id: i64,
+    impersonator_id: Option<i64>,
+) -> toasty::Result<String> {
     let (secret, hash) = new_bearer_token();
     toasty::create!(AdminSession {
         token_hash: hash,
@@ -236,7 +249,31 @@ pub async fn establish_session_as(
     })
     .exec(&mut *db)
     .await?;
-    Ok(set_cookie(&secret))
+    Ok(secret)
+}
+
+// --- company join link -----------------------------------------------------------------------
+
+/// Whether `code` is the company's join code.
+///
+/// The code lives in the `JOIN_CODE` environment variable: one reusable link for everyone, no
+/// table and no email. Rotating it means changing the variable and redeploying. With the variable
+/// unset or blank nobody can join, which is the safe default for a fresh deployment.
+pub fn join_code_matches(code: &str) -> bool {
+    let expected = std::env::var("JOIN_CODE").unwrap_or_default();
+    join_code_matches_expected(code, &expected)
+}
+
+fn join_code_matches_expected(code: &str, expected: &str) -> bool {
+    let (code, expected) = (code.trim(), expected.trim());
+    if expected.is_empty() || code.len() != expected.len() {
+        return false;
+    }
+    // Compare every byte so the time taken does not reveal how much of a guess was right.
+    code.bytes()
+        .zip(expected.bytes())
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
 }
 
 /// End the current session (server record + cookie). Returns the clearing `Set-Cookie` value.
@@ -302,7 +339,21 @@ pub async fn issue_device_token(db: &mut Db, member_id: i64) -> toasty::Result<S
 
 #[cfg(test)]
 mod tests {
-    use super::{account_validation_error, hash_password, signup_email_allowed, verify_password};
+    use super::{
+        account_validation_error, hash_password, join_code_matches_expected, signup_email_allowed,
+        verify_password,
+    };
+
+    #[test]
+    fn join_code_must_match_exactly_and_be_configured() {
+        assert!(join_code_matches_expected("enzo-2026", "enzo-2026"));
+        assert!(join_code_matches_expected(" enzo-2026 ", "enzo-2026"));
+        assert!(!join_code_matches_expected("enzo-2027", "enzo-2026"));
+        assert!(!join_code_matches_expected("enzo", "enzo-2026"));
+        // An unset variable must not turn the empty string into a valid code.
+        assert!(!join_code_matches_expected("", ""));
+        assert!(!join_code_matches_expected("anything", ""));
+    }
 
     #[test]
     fn password_hash_verifies_only_the_original_password() {

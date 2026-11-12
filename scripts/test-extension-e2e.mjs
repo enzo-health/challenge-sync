@@ -20,7 +20,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
-const PROFILE = process.env.CHROME_PROFILE || resolve(ROOT, "../../..", ".chromium-dev-profile");
+const PROFILE = process.env.CHROME_PROFILE || resolve(ROOT, ".chromium-dev-profile");
 const UNPACKED = resolve(ROOT, "extension/dist/unpacked");
 const CHROME = process.env.CHROME || "chromium";
 const PORT = Number(process.env.CDP_PORT || 9333);

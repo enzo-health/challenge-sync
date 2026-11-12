@@ -6,7 +6,7 @@
 // stays hand-written is the part that is genuinely ours: turning status codes into messages a
 // person can act on.
 import { getState, setState } from "./storage.js";
-import { SERVER_URL, SESSION_COOKIE } from "./config.js";
+import { JOIN_COOKIE, SERVER_URL, SESSION_COOKIE } from "./config.js";
 import { bearer, getSyncStatus, installApiBaseUrl, linkIdentity, pushSync, signInDeviceWithSession } from "./api.js";
 
 installApiBaseUrl();
@@ -37,6 +37,82 @@ export async function signInFromSession() {
   if (res.status === 401) return null; // stale or expired cookie — same remedy as having none
   if (res.status !== 200) throw new Error(res.data?.error || `Server error (${res.status}).`);
   return res.data;
+}
+
+// ---- no-password sign-in ---------------------------------------------------------------------
+//
+// These two endpoints are called with plain `fetch` rather than the generated client: they were
+// added after the client in `generated/` was last produced. `installApiBaseUrl` still resolves
+// the `/api/` path against SERVER_URL and normalizes non-JSON error bodies.
+
+async function postJson(path, body, init = {}) {
+  const res = await fetch(path, {
+    method: "POST",
+    ...init,
+    headers: { "content-type": "application/json", ...(init.headers || {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // An empty body is a valid answer for some failures; the status carries the meaning.
+  }
+  return { status: res.status, data };
+}
+
+/** The company join code remembered by the site's `/join/<code>` page, or null. */
+export async function readJoinCode() {
+  const cookie = await chrome.cookies.get({ url: SERVER_URL, name: JOIN_COOKIE });
+  return cookie?.value ? decodeURIComponent(cookie.value) : null;
+}
+
+// Sign in from the LinkedIn identity alone: creates the account on first use, signs in to the
+// existing one afterwards. Returns `{ needsInvite: true }` when the server wants a join code
+// this browser does not have (or has wrong).
+export async function joinWithLinkedIn(member, joinCode) {
+  const res = await postJson("/api/auth/extension/join", { joinCode, member });
+  if (res.status === 403) return { needsInvite: true };
+  if (res.status !== 200) throw new Error(res.data?.error || `Server error (${res.status}).`);
+  await setState({
+    syncToken: res.data.syncToken,
+    orgName: "Challenge Sync",
+    displayName: res.data.displayName,
+    memberUrn: member.memberUrn,
+    publicIdentifier: member.publicIdentifier,
+    lastError: null,
+  });
+  return res.data;
+}
+
+// Make the website open already signed in: mint a session from this device's sync token and put
+// it in the cookie jar. Does nothing when a session cookie is already there, so an impersonation
+// or a password login is never overwritten. Returns whether a session is present afterwards.
+//
+// `force` replaces a cookie that is present but that the site has just reported as not signed in
+// (expired, or left over from another database). It is throttled so a page polling for sign-in
+// cannot mint a session every few seconds.
+let lastForcedAt = 0;
+export async function ensureWebSession({ force = false } = {}) {
+  if (await readSessionCookie()) {
+    if (!force || Date.now() - lastForcedAt < 15_000) return true;
+    lastForcedAt = Date.now();
+  }
+  const { syncToken } = await getState();
+  if (!syncToken) return false;
+  const res = await postJson("/api/auth/device/web-session", undefined, bearer(syncToken));
+  if (res.status !== 200) return false;
+  await chrome.cookies.set({
+    url: SERVER_URL,
+    name: SESSION_COOKIE,
+    value: res.data.sessionToken,
+    path: "/",
+    httpOnly: true,
+    secure: SERVER_URL.startsWith("https://"),
+    sameSite: "lax",
+    expirationDate: Math.floor(Date.now() / 1000) + res.data.maxAge,
+  });
+  return true;
 }
 
 // Bind this browser's LinkedIn identity to the account the sync token belongs to.

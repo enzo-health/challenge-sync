@@ -42,13 +42,13 @@ function renderLinkView(link) {
     li.querySelector(".mark").textContent = good ? "✓" : "✕";
     $(fixId).hidden = good;
   };
-  set("check-app", !link.needsSignIn, "fix-app");
+  set("check-app", !link.needsInvite, "fix-app");
   set("check-li", !link.needsLinkedIn, "fix-li");
   const failed = Boolean(link.error);
   $("lede-text").textContent = failed
     ? "Couldn't connect this browser."
-    : link.needsSignIn || link.needsLinkedIn
-      ? "Sign in to both sites and this connects on its own."
+    : link.needsInvite || link.needsLinkedIn
+      ? "Two things to do, then this connects on its own."
       : "Connecting this browser to your challenge account…";
   $("link-error").hidden = !failed;
   $("link-error").textContent = link.error || "";
