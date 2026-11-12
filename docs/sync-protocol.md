@@ -83,8 +83,8 @@ Content-Type: application/json
 ### Refresh window
 
 The extension reads the member's latest 30 posts in one feed request, then spends one or two more
-requests per post on author analytics and comments. A post's numbers settle within a couple of
-weeks, so posts older than `REFRESH_WINDOW_DAYS` (28, `extension/config.js`), measured from
+requests per post on author analytics and comments. Posts older than `REFRESH_WINDOW_DAYS` (45,
+`extension/config.js`; the lottery needs reach kept current for at least 30 days), measured from
 `createdAt` at sync time, are not re-read once the server has them:
 
 - They are left out of `posts`, so the server writes no new snapshot and the last full reading

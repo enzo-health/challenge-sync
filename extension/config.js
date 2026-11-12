@@ -30,11 +30,15 @@ export const SYNC_JITTER_MINUTES = 45;
 // Max posts to pull per sync (most recent first). Competitions only grade a few/week anyway.
 export const MAX_POSTS = 30;
 
-// Posts older than this (by creation time, at sync time) stop being refreshed once recorded. A
-// post's numbers settle within a couple of weeks, and every refresh costs one or two more
-// requests to LinkedIn, so re-reading the same old post twice a day forever buys nothing. The
-// last reading taken before the cutoff stays on the server as the post's numbers.
-export const REFRESH_WINDOW_DAYS = 28;
+// Posts older than this (by creation time, at sync time) stop being refreshed once recorded.
+// Every refresh costs one or two more requests to LinkedIn, so re-reading the same old post
+// twice a day forever buys nothing. The last reading taken before the cutoff stays on the server
+// as the post's numbers.
+//
+// 45 days, not less: the company lottery pays a bonus when a post passes an out-of-network
+// impressions mark "whenever it gets there", and asks for reach to stay current for at least 30
+// days after posting. This leaves two weeks of margin over that.
+export const REFRESH_WINDOW_DAYS = 45;
 
 // Polite delay between sequential LinkedIn requests (ms).
 export const REQUEST_DELAY_MS = 1200;

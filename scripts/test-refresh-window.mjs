@@ -18,13 +18,18 @@ function check(name, fn) {
   console.log("PASS:", name);
 }
 
-check("the window is four weeks", () => assert.equal(REFRESH_WINDOW_DAYS, 28));
+// The lottery needs reach kept current for at least 30 days after a post goes up.
+check("the window is 45 days, comfortably over the 30 the lottery needs", () => {
+  assert.equal(REFRESH_WINDOW_DAYS, 45);
+  assert.ok(REFRESH_WINDOW_DAYS >= 30);
+});
 
 check("age is measured from creation time at sync time", () => {
   assert.equal(isPastRefreshWindow(daysAgo(10), now), false);
-  assert.equal(isPastRefreshWindow(daysAgo(27.9), now), false);
-  assert.equal(isPastRefreshWindow(daysAgo(28.1), now), true);
-  assert.equal(isPastRefreshWindow(daysAgo(40), now), true);
+  assert.equal(isPastRefreshWindow(daysAgo(30), now), false);
+  assert.equal(isPastRefreshWindow(daysAgo(44.9), now), false);
+  assert.equal(isPastRefreshWindow(daysAgo(45.1), now), true);
+  assert.equal(isPastRefreshWindow(daysAgo(60), now), true);
 });
 
 check("a post with no readable creation time is always refreshed", () => {
