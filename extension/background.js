@@ -13,6 +13,9 @@ globalThis.diagnose = diagnose;
 // The collectors, for the e2e check (scripts/test-extension-e2e.mjs), which drives this worker
 // over DevTools — a service worker can't dynamic-import, so they must be reachable by name.
 globalThis.collectors = { getMe, getPostFeed, getPostComments, getFollowerCount, collectSnapshot };
+// The sync cycle, for the join-flow e2e check (scripts/test-join-flow-e2e.mjs), which runs a
+// second sync from this worker's own context, where it can't message itself with SYNC_NOW.
+globalThis.runSync = runSync;
 
 // Arm the check alarm. It fires every SYNC_CHECK_MINUTES; runSync() decides whether enough time
 // has passed. The first check comes a minute after install or browser start, so a laptop that

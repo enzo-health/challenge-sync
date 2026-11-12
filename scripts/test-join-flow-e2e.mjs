@@ -8,7 +8,9 @@
 //
 //   1. the get-started page, with no join link opened, says an invite link is needed;
 //   2. opening `/join/<code>` signs the site in as the LinkedIn member, by itself;
-//   3. the extension's first sync lands that member's posts on the local server.
+//   3. the extension's first sync lands that member's posts on the local server;
+//   4. a second sync, run straight away, leaves out the delivered posts older than the refresh
+//      window (REFRESH_WINDOW_DAYS) and the server still has every post.
 //
 // Requires: chromium on PATH, `just extension-dev` already run (the build targets
 // http://localhost:3312, so that port must be free), the server built (`cargo build`), and the dev
@@ -19,6 +21,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { REFRESH_WINDOW_DAYS } from "../extension/config.js";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const PROFILE = process.env.CHROME_PROFILE || resolve(ROOT, ".chromium-dev-profile");
@@ -142,6 +145,10 @@ const RESET = `(async () => {
   return true;
 })()`;
 
+// The account's stored post count, as the extension's popup reads it.
+const syncStatus = `chrome.storage.local.get("syncToken").then(({ syncToken }) =>
+  fetch("${SERVER}/api/me/sync-status", { headers: { authorization: "Bearer " + syncToken } }).then(r => r.json()))`;
+
 let failed = false;
 let worker = null;
 try {
@@ -196,6 +203,59 @@ try {
   );
   if (!status.linked) throw new Error("posts synced, but the account is not marked linked");
   ok(`first sync stored ${status.postsCount} posts for the new account`);
+
+  // 4. A second sync leaves out delivered posts past the refresh window, and deletes nothing.
+  // Wait for the first sync to finish recording what it delivered: the server can report posts
+  // before the extension has saved `recordedPosts`.
+  const first = await until(
+    worker,
+    `chrome.storage.local.get(["lastSyncAt", "recordedPosts", "lastPostsIngested"])
+       .then(s => s.lastSyncAt && s.recordedPosts ? s : null)`,
+    "the first sync to finish", 60,
+  );
+  const firstStatus = await evaluate(worker, syncStatus);
+  const delivered = new Set(first.recordedPosts.urns);
+  // The server's stored creation times, read by the signed-in tab. With no creation time from
+  // LinkedIn the server falls back to the first snapshot's time, which is never past the window,
+  // just as the extension treats a missing time as "refresh".
+  const stored = await evaluate(page, `fetch("/api/me/posts?sort=newest&pageSize=100").then(r => r.json())`);
+  if (stored.total !== firstStatus.postsCount) {
+    throw new Error(`/api/me/posts lists ${stored.total} posts but sync-status reports ${firstStatus.postsCount}`);
+  }
+  // Measured at the moment the second sync starts; posts within a few minutes of the cutoff could
+  // fall either side by the time the extension decides, so they get slack rather than a flake.
+  const cutoff = Date.now() / 1000 - REFRESH_WINDOW_DAYS * 86_400;
+  const deliveredPosts = stored.posts.filter((p) => delivered.has(p.urn));
+  const old = deliveredPosts.filter((p) => p.postedAt < cutoff - 600).length;
+  const borderline = deliveredPosts.filter((p) => Math.abs(p.postedAt - cutoff) <= 600).length;
+
+  await evaluate(worker, `(globalThis.e2eSecondSync = null,
+    runSync({ manual: true }).then(r => (globalThis.e2eSecondSync = r), e => (globalThis.e2eSecondSync = { ok: false, error: String(e) })),
+    true)`);
+  const second = await until(worker, `globalThis.e2eSecondSync`, "the second sync to finish", 240);
+  if (!second.ok) throw new Error(`second sync failed: ${second.error}`);
+  const firstCount = first.lastPostsIngested;
+  const secondCount = second.postsIngested;
+  ok(`second sync succeeded: first uploaded ${firstCount} posts, second uploaded ${secondCount}`);
+
+  // Every delivered post is past the window, inside it, or within the cutoff slack.
+  const expected = firstCount - old;
+  if (secondCount > expected || secondCount < expected - borderline) {
+    throw new Error(`expected the second sync to upload ${expected} posts (${firstCount} minus ${old} older than ` +
+      `${REFRESH_WINDOW_DAYS} days, give or take ${borderline} at the cutoff), but it uploaded ${secondCount}`);
+  }
+  if (old === 0) {
+    console.log(`skipped: no posts older than ${REFRESH_WINDOW_DAYS} days on this profile, so the refresh-window skip was not exercised`);
+  } else {
+    if (!(secondCount < firstCount)) throw new Error(`second sync uploaded ${secondCount} posts, not fewer than ${firstCount}`);
+    ok(`second sync left out the ${firstCount - secondCount} delivered posts older than ${REFRESH_WINDOW_DAYS} days`);
+  }
+
+  const secondStatus = await evaluate(worker, syncStatus);
+  if (secondStatus.postsCount !== firstStatus.postsCount) {
+    throw new Error(`the server had ${firstStatus.postsCount} posts after the first sync but ${secondStatus.postsCount} after the second`);
+  }
+  ok(`the server still stores all ${secondStatus.postsCount} posts after the second sync`);
 } catch (err) {
   failed = true;
   console.error(`FAIL: ${err.message}`);
