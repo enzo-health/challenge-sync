@@ -62,6 +62,18 @@ export function fmtLocalDate(unix: number): string {
   });
 }
 
+/** Unix seconds → how long ago, in the largest whole unit: `just now`, `5 hours ago`,
+ * `12 days ago`. Days stay days up to two months, so "not synced for 40 days" reads as such. */
+export function fmtAgo(unix: number, nowMs: number = Date.now()): string {
+  const seconds = Math.max(0, Math.floor(nowMs / 1000) - unix);
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  if (seconds < 3600) return seconds < 60 ? "just now" : plural(Math.floor(seconds / 60), "minute");
+  if (seconds < 86400) return plural(Math.floor(seconds / 3600), "hour");
+  const days = Math.floor(seconds / 86400);
+  if (days < 60) return plural(days, "day");
+  return days < 730 ? plural(Math.floor(days / 30), "month") : plural(Math.floor(days / 365), "year");
+}
+
 /** Initials for the avatar placeholder, until profile pictures are stored. */
 export function initials(name: string): string {
   return name

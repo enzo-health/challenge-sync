@@ -302,6 +302,69 @@ ul.plain li:last-child { border-bottom: none; }
   background: none; border: 0; font-size: 22px; line-height: 1; cursor: pointer;
   color: var(--muted); padding: 0 4px; width: auto;
 }
+.modal.confirm { max-width: 440px; }
+.confirm-body p { margin: 0 0 14px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.btn.danger { background: var(--err); color: #fff; }
+.btn.danger:hover { background: #8f1c13; }
+
+/* --- row action menu (components/action-menu.tsx) ------------------------------------------ */
+.menu-button {
+  width: 32px; height: 32px; padding: 0; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); font-size: 18px; line-height: 1;
+}
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: #f0efed; color: var(--fg); border-color: var(--line); }
+.menu-button:focus-visible, .row-menu button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* Fixed, so the table's sideways-scrolling panel cannot clip it; placed by the component. */
+.row-menu {
+  position: fixed; z-index: 40; min-width: 170px; padding: 5px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(16, 24, 40, .14);
+  display: flex; flex-direction: column;
+}
+.row-menu button {
+  display: block; width: 100%; text-align: left; padding: 8px 11px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--fg); font-size: 14px; font-weight: 500;
+}
+.row-menu button:hover, .row-menu button:focus-visible { background: #f5f5f4; }
+.row-menu button.danger { color: var(--err); }
+
+/* --- All users filters and rows ------------------------------------------------------------- */
+.user-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 14px; }
+.user-filters label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.user-filters input[type="search"] { min-width: 220px; }
+.user-filters select { min-width: 190px; }
+.user-filters label.check { display: flex; align-items: center; gap: 7px; font-size: 13px; padding-bottom: 9px; }
+.user-filters label.check input { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--brand); }
+.user-filters > span { padding-bottom: 9px; }
+.th-sort {
+  width: auto; padding: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+}
+.th-sort:hover { background: transparent; color: var(--fg); text-decoration: underline; }
+.stale { color: var(--err); }
+.badge.danger { background: #fdeceb; color: var(--err); }
+tr.deleted-row td { color: var(--muted); }
+tr.deleted-row .avatar, tr.deleted-row .who span:last-child { opacity: .6; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 700px) {
+  .user-filters { align-items: stretch; flex-direction: column; }
+  .user-filters input[type="search"], .user-filters select { min-width: 0; width: 100%; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .stale, .row-menu button.danger { color: #f0857a; }
+  .btn.danger { background: #b42318; }
+  .btn.danger:hover { background: #d0382c; }
+  .menu-button:hover, .menu-button[aria-expanded="true"] { background: #3a3532; }
+  .row-menu { box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
+  .row-menu button:hover, .row-menu button:focus-visible { background: #3a3532; }
+  .badge.danger { background: #3d1d1a; color: #f0857a; }
+}
 .admin-strip {
   border: 1px solid var(--line); border-left: 3px solid var(--brand);
   border-radius: 8px; padding: 12px 14px; margin: 16px 0; background: var(--panel);

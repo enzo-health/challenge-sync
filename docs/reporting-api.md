@@ -147,6 +147,7 @@ Values below are made up.
       "authorName": "Ada Ortiz",
       "authorProfileUrl": "https://www.linkedin.com/in/ada-ortiz/",
       "authorPublicIdentifier": "ada-ortiz",
+      "authorDeleted": false,
       "postUrl": "https://www.linkedin.com/feed/update/urn:li:activity:7392000000000000000/",
       "postedAt": "2026-11-13T04:30:00Z",
       "postedAtLocal": "2026-11-12T21:30:00-07:00",
@@ -170,6 +171,7 @@ Values below are made up.
       "displayName": "Ada Ortiz",
       "profileUrl": "https://www.linkedin.com/in/ada-ortiz/",
       "publicIdentifier": "ada-ortiz",
+      "deleted": false,
       "postsInPeriod": 3,
       "matchingPosts": 1
     },
@@ -178,6 +180,7 @@ Values below are made up.
       "displayName": "Ben Cho",
       "profileUrl": null,
       "publicIdentifier": "ben-cho",
+      "deleted": false,
       "postsInPeriod": 2,
       "matchingPosts": 0
     }
@@ -196,6 +199,11 @@ Values below are made up.
   their posts in the period; `matchingPosts` counts the ones in `posts`. Sorted by
   `matchingPosts`, then `postsInPeriod`, highest first. People who did not post at all are not
   listed: use `/api/v1/members` for everyone.
+- `authorDeleted` (on a post) and `deleted` (on an author): `true` when an admin has since deleted
+  that person's account, usually because they left the company. Their posts **stay in the report**
+  for the period they were published in, so a past week's numbers and winners do not change after
+  someone leaves; filter on this flag if a draw should only include current staff. Deleted
+  accounts are left out of `/api/v1/members`.
 
 ### CSV response
 
@@ -204,10 +212,12 @@ and last day of the period in `timezone`, like `posts-2026-11-06-to-2026-11-12.c
 header row:
 
 ```
-posted_date,posted_at_utc,posted_at_local,author_name,author_member_id,author_profile_url,post_url,impressions,impressions_in_network,impressions_out_of_network,reactions,comments,reposts,sends,saves,is_repost,text
+posted_date,posted_at_utc,posted_at_local,author_name,author_member_id,author_profile_url,post_url,impressions,impressions_in_network,impressions_out_of_network,reactions,comments,reposts,sends,saves,is_repost,text,author_deleted
 ```
 
-`posted_date` is the day in `timezone`. Standard CSV: fields with commas, quotes or line breaks are
+`posted_date` is the day in `timezone`. `author_deleted` is `true` or `false`, as `authorDeleted`
+above; it is the last column so that columns read by position before it was added still line up.
+Standard CSV: fields with commas, quotes or line breaks are
 quoted, so a multi-line post is one cell holding the full text. Unknown numbers are empty cells.
 The file starts with a UTF-8 byte order mark so Excel shows accents and emoji correctly. Text that
 starts with `=`, `+`, `-` or `@` is prefixed with `'` so a spreadsheet does not run it as a
@@ -220,7 +230,8 @@ GET https://social-challenge.enzo.health/api/v1/members
 ```
 
 One parameter: `format` (`json` by default, or `csv`). Every account, sorted by name, with no
-emails.
+emails. Accounts an admin has deleted are left out, here and in every `sync` figure: they can no
+longer sync, so counting them would look like a stall.
 
 ```json
 {

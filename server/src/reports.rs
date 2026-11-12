@@ -262,6 +262,9 @@ pub struct ReportPost {
     pub author_profile_url: Option<String>,
     #[schema(required)]
     pub author_public_identifier: Option<String>,
+    /// True when an admin has since deleted the author's account. Their posts stay in the
+    /// period they were published in, so a past week's report does not change when someone leaves.
+    pub author_deleted: bool,
     /// Link to the post on LinkedIn.
     pub post_url: String,
     /// When the post was published, `YYYY-MM-DDTHH:MM:SSZ` (UTC).
@@ -309,6 +312,8 @@ pub struct ReportAuthor {
     pub profile_url: Option<String>,
     #[schema(required)]
     pub public_identifier: Option<String>,
+    /// True when an admin has since deleted this account (see `ReportPost::author_deleted`).
+    pub deleted: bool,
     /// Every post they published in the period, whatever its numbers.
     pub posts_in_period: i64,
     /// How many of those passed the filters (equal to `postsInPeriod` with none).
@@ -360,6 +365,7 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
                 author_profile_url: member.profile_url.clone().filter(|url| !url.is_empty()),
                 author_public_identifier: Some(member.public_identifier.clone())
                     .filter(|id| !id.is_empty()),
+                author_deleted: member.is_deleted(),
                 post_url: post.permalink.clone(),
                 posted_at: fmt_iso8601(posted_at),
                 posted_at_local: fmt_local(posted_at, filter.offset),
@@ -387,6 +393,7 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
                 display_name: member.display_name.clone(),
                 profile_url: row.author_profile_url.clone(),
                 public_identifier: row.author_public_identifier.clone(),
+                deleted: row.author_deleted,
                 posts_in_period: 0,
                 matching_posts: 0,
             });
@@ -501,10 +508,16 @@ pub struct MemberReport {
 /// Every account with when it last synced, for spotting people who post but are not syncing and
 /// a stall across everyone. "Last synced" is the newest profile snapshot, which every successful
 /// sync writes whether or not any post changed (see `dto::profile_readings`).
+///
+/// Deleted accounts are left out, from the list and from the sync summary: they can no longer
+/// sync, so counting them would read as a stall.
 pub async fn member_report(db: &mut Db, now: i64) -> crate::web::ApiResult<MemberReport> {
     let mut accounts = Member::all().exec(&mut *db).await?;
+    accounts.retain(|member| !member.is_deleted());
     accounts.sort_by(|a, b| a.display_name.cmp(&b.display_name).then(a.id.cmp(&b.id)));
-    let readings = profile_readings(db).await?;
+    let mut readings = profile_readings(db).await?;
+    let active: std::collections::HashSet<i64> = accounts.iter().map(|member| member.id).collect();
+    readings.last_synced.retain(|id, _| active.contains(id));
     // A whole-table read of `posts`, original posts only. That table is a small fraction of
     // `post_snapshots` (one row per post rather than one per reading), and one query beats one
     // per member against a remote database.
@@ -620,7 +633,7 @@ pub fn report_csv(report: &PostReport) -> String {
     out.push_str(
         "posted_date,posted_at_utc,posted_at_local,author_name,author_member_id,author_profile_url,post_url,\
          impressions,impressions_in_network,impressions_out_of_network,reactions,comments,\
-         reposts,sends,saves,is_repost,text\r\n",
+         reposts,sends,saves,is_repost,text,author_deleted\r\n",
     );
     let number = |value: Option<i64>| value.map(|value| value.to_string()).unwrap_or_default();
     for post in &report.posts {
@@ -643,6 +656,7 @@ pub fn report_csv(report: &PostReport) -> String {
             number(post.saves),
             post.is_repost.to_string(),
             csv_text(post.text.as_deref().unwrap_or("")),
+            post.author_deleted.to_string(),
         ];
         let line: Vec<String> = fields.iter().map(|field| csv_field(field)).collect();
         out.push_str(&line.join(","));

@@ -84,6 +84,11 @@ pub async fn post(
 
     let (member, secret) = match member_by_email(&mut db, &email).await? {
         Some(member) => {
+            // A deleted account is not signed back in by an invite, and its address cannot be
+            // taken for a new one; an admin restores it instead.
+            if member.is_deleted() {
+                return Err(ApiError::conflict("an account with that email already exists"));
+            }
             if !member.password_hash.as_deref().is_some_and(|hash| verify_password(&req.password, hash)) {
                 return Err(ApiError::unauthorized("invalid email or password"));
             }

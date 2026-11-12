@@ -284,18 +284,26 @@ pub struct Dataset {
 impl Dataset {
     /// Load the members with these ids and all of their posts, snapshots, comments, and profile
     /// readings. Five queries, or none when `member_ids` is empty.
+    ///
+    /// Deleted accounts are left out, with all their data, so boards, standings, member counts
+    /// and company totals drop them while their challenge memberships stay for a restore.
     pub async fn load(db: &mut Db, member_ids: &[i64]) -> toasty::Result<Self> {
         let mut data = Self::default();
         if member_ids.is_empty() {
             return Ok(data);
         }
-        let ids: Vec<i64> = member_ids.to_vec();
 
-        for member in Member::filter(Member::fields().id().in_list(ids.clone()))
+        for member in Member::filter(Member::fields().id().in_list(member_ids.to_vec()))
             .exec(&mut *db)
             .await?
         {
-            data.members.insert(member.id, member);
+            if !member.is_deleted() {
+                data.members.insert(member.id, member);
+            }
+        }
+        let ids: Vec<i64> = data.members.keys().copied().collect();
+        if ids.is_empty() {
+            return Ok(data);
         }
 
         let posts = Post::filter(Post::fields().member_id().in_list(ids.clone()))
@@ -333,6 +341,9 @@ impl Dataset {
     /// snapshots, and their authors — for reports across everyone, where loading every member's
     /// whole history (as [`Dataset::load`] does) would read most of `post_snapshots`. Comments and
     /// profile readings are not loaded. Three queries.
+    ///
+    /// Unlike [`Dataset::load`], deleted authors are kept: a report on a past week must not change
+    /// because someone left afterwards.
     ///
     /// A post stored without a creation time (0) is dated by its first snapshot, as
     /// [`Dataset::posted_at`] does everywhere else, so those are fetched too and then dropped

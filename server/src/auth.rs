@@ -121,6 +121,8 @@ pub fn clear_cookie() -> String {
 /// Login used to look up a synthetic `admin:<email>` URN, which only admins had — participants
 /// could never sign in. Email is the login identifier for everyone, so it is also the uniqueness
 /// check at signup and join: two different URN prefixes let the same address register twice.
+/// It therefore also finds deleted accounts; callers that sign someone in must check
+/// [`Member::is_deleted`].
 pub async fn member_by_email(db: &mut Db, email: &str) -> toasty::Result<Option<Member>> {
     let email = email.trim().to_lowercase();
     Ok(
@@ -153,6 +155,10 @@ pub async fn member_from_session_token(db: &mut Db, token: &str) -> Option<Membe
 }
 
 /// Full resolution of a session token, including the impersonation edge.
+///
+/// Every cookie-authed route comes through here, so this is where a deleted account is turned
+/// away: its session (and any session it was driving as an impersonator) reads as signed out.
+/// Deleting also removes those session rows; this check covers anything that slipped past that.
 pub async fn session_from_token(db: &mut Db, token: &str) -> Option<SessionInfo> {
     let key = hash_bearer_token(token);
     let sess = AdminSession::filter_by_token_hash(&key)
@@ -168,7 +174,8 @@ pub async fn session_from_token(db: &mut Db, token: &str) -> Option<SessionInfo>
         .exec(&mut *db)
         .await
         .ok()
-        .flatten()?;
+        .flatten()
+        .filter(|member| !member.is_deleted())?;
     let impersonator = match sess.impersonator_id {
         Some(id) => {
             let real = Member::filter_by_id(id)
@@ -180,7 +187,7 @@ pub async fn session_from_token(db: &mut Db, token: &str) -> Option<SessionInfo>
             // The impersonator must still BE a system admin: were the flag revoked mid-session,
             // the borrowed session dies with it rather than outliving the privilege.
             match real {
-                Some(real) if real.is_system_admin => Some(real),
+                Some(real) if real.is_system_admin && !real.is_deleted() => Some(real),
                 _ => return None,
             }
         }
@@ -347,7 +354,13 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 ///
 /// Per-device tokens are checked first; the single legacy hash on the member row is still
 /// honoured so extensions linked before device tokens existed keep syncing without relinking.
+/// A deleted account's token is refused, like an unknown one.
 pub async fn member_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<Member> {
+    let member = token_member(db, headers).await?;
+    (!member.is_deleted()).then_some(member)
+}
+
+async fn token_member(db: &mut Db, headers: &HeaderMap) -> Option<Member> {
     let raw = bearer_token(headers)?;
     let hash = hash_bearer_token(raw);
     if let Ok(Some(device)) = DeviceToken::filter_by_token_hash(&hash).first().exec(&mut *db).await {
@@ -381,7 +394,8 @@ pub fn has_bearer(headers: &HeaderMap) -> bool {
 ///
 /// Only `api_keys` is consulted, so a sync token is never accepted here; and `member_from_bearer`
 /// never looks at `api_keys`, so a key cannot sync. A key also stops working when the admin who
-/// created it is no longer an admin: it carries their access, not its own.
+/// created it is no longer an admin, or their account was deleted: it carries their access, not
+/// its own.
 pub async fn api_key_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<ApiKey> {
     let raw = bearer_token(headers)?.trim();
     if !raw.starts_with(API_KEY_PREFIX) {
@@ -398,7 +412,7 @@ pub async fn api_key_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<Api
         .exec(&mut *db)
         .await
         .ok()??;
-    if !creator.is_system_admin {
+    if !creator.is_system_admin || creator.is_deleted() {
         return None;
     }
     // Best effort: a failed bookkeeping write must not fail the read itself.

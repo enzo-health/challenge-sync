@@ -773,6 +773,11 @@ pub async fn member_detail(
         .exec(&mut *db)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
+    // A deleted account is off every board, so its detail page goes with it. (Its own session
+    // is refused before reaching here, so the viewer is never the deleted account.)
+    if member.is_deleted() && member.id != viewer.id {
+        return Err(ApiError::not_found("user not found"));
+    }
 
     // The challenge the caller asked about, defaulting to whichever the org is showing — so a
     // leaderboard row and the detail behind it always describe the same window.
@@ -1077,6 +1082,10 @@ pub struct SystemMemberRow {
     /// Unix seconds of the newest profile snapshot — a proxy for "is the extension syncing".
     pub last_synced_at: Option<i64>,
     pub created_at: i64,
+    /// When an admin deleted the account (unix seconds), or null. The page hides these rows
+    /// unless asked to show them.
+    #[schema(required)]
+    pub deleted_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -1117,7 +1126,8 @@ pub async fn profile_readings(db: &mut Db) -> ApiResult<ProfileReadings> {
     })
 }
 
-/// Every account, for the hand-operated product support panel.
+/// Every account, for the hand-operated product support panel. Deleted accounts are included
+/// with `deleted_at` set, so the page can offer to restore them.
 pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
     // Three whole-table reads rather than two queries per account: this panel lists everyone,
     // so per-row lookups would grow with the user base against a remote database.
@@ -1142,6 +1152,7 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
             email: user.email,
             is_system_admin: user.is_system_admin,
             created_at: user.created_at,
+            deleted_at: user.deleted_at,
         })
         .collect();
     // The generated code is the one to share; the fixed `JOIN_CODE` is shown only until an admin

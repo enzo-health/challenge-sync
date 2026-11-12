@@ -9,6 +9,10 @@
 //! keys, so that is ruled out. The join code is therefore the real gate: holding it is what lets
 //! a browser claim an identity, which is the same trust the sync endpoint already places in the
 //! extension for every number it scores.
+//!
+//! **Deleted accounts.** Someone whose account an admin deleted is refused here (403) rather than
+//! signed in or given a fresh account, even holding a valid join code: the identity still belongs
+//! to the deleted account, and an admin can restore it.
 
 use axum::{Extension, Json};
 use http::StatusCode;
@@ -54,7 +58,7 @@ pub struct ExtensionJoinResponse {
     responses(
         (status = 200, description = "Signed in; sync token issued for this device", body = ExtensionJoinResponse),
         (status = 400, description = "Missing or malformed LinkedIn identity", body = ApiError),
-        (status = 403, description = "Missing or wrong join code", body = ApiError),
+        (status = 403, description = "Missing or wrong join code, or the account was deleted", body = ApiError),
     ),
 )]
 pub async fn post(
@@ -76,6 +80,9 @@ pub async fn post(
     }
 
     let existing = Member::filter_by_linkedin_urn(urn).first().exec(&mut db).await?;
+    if existing.as_ref().is_some_and(Member::is_deleted) {
+        return Err(removed());
+    }
     let (member, created) = match existing {
         Some(member) => (member, false),
         None => {
@@ -115,6 +122,9 @@ pub async fn post(
                         .exec(&mut db)
                         .await?
                         .ok_or_else(|| ApiError::conflict("that LinkedIn account is being set up; try again"))?;
+                    if member.is_deleted() {
+                        return Err(removed());
+                    }
                     (member, false)
                 }
                 Err(error) => return Err(error.into()),
@@ -132,6 +142,14 @@ pub async fn post(
         member_id: member.id,
         created,
     }))
+}
+
+/// The refusal for a LinkedIn identity whose account an admin deleted.
+fn removed() -> ApiError {
+    ApiError::new(
+        StatusCode::FORBIDDEN,
+        "this account has been removed; ask an admin to restore it",
+    )
 }
 
 /// The LinkedIn name, then the public identifier, then a neutral fallback.

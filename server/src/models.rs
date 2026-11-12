@@ -107,6 +107,8 @@ pub async fn connect() -> Db {
     )
     .await;
     add_column(&mut db, "ALTER TABLE invites ADD COLUMN email TEXT").await;
+    // Deleting an account marks it rather than removing it, so past reports keep their numbers.
+    add_column(&mut db, "ALTER TABLE members ADD COLUMN deleted_at BIGINT").await;
     // Email is the login identifier for everyone, so the database enforces uniqueness too — the
     // signup-time check alone cannot rule out two concurrent registrations of one address.
     // NULL (extension-only members) is exempt from the constraint on both engines.
@@ -326,11 +328,22 @@ pub struct Member {
     pub api_token_hash: String,
 
     pub created_at: i64,
+    /// When an admin deleted the account (unix seconds), or None while it is in use. A deleted
+    /// account cannot sign in or sync and is left off boards and lists, but everything recorded
+    /// for it is kept so it can be restored and past reports do not change.
+    pub deleted_at: Option<i64>,
 
     #[has_many]
     pub posts: toasty::Deferred<Vec<Post>>,
     #[has_many]
     pub profile_snapshots: toasty::Deferred<Vec<ProfileSnapshot>>,
+}
+
+impl Member {
+    /// Whether an admin has deleted this account (see `deleted_at`).
+    pub fn is_deleted(&self) -> bool {
+        self.deleted_at.is_some()
+    }
 }
 
 /// A single-use invite code that binds an extension install to a new `Member`.

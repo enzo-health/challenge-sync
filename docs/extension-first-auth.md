@@ -23,17 +23,44 @@ original proposal, kept for the reasoning.
   the All users page, which also shows, generates and replaces the join link. The first admin is set in the database.
 - **Kept:** the email and password login, at `/auth/password`, for accounts that have one. The
   signup page is gone; the signup API remains for the tests and is still limited to enzo.health.
-- **Deleting an account** (for people who have left). An admin uses "Delete" on the All users
-  page (`DELETE /api/system/members/{id}`, in `server/src/accounts.rs`). It permanently removes
-  the person's posts with their snapshots and comments, profile snapshots, device tokens (their
-  extension is refused at once), website sessions (including ones where they were viewing as
-  someone else), challenge memberships, invites addressed to their email, the API keys they
-  created, and finally the account itself. It cannot be undone. If they open the join link again
-  later, they get a new, empty account. Kept: a join link they generated (it keeps working for
-  everyone else), and comments they left on other people's posts (those count towards the other
-  person's post). Two refusals: an admin cannot delete their own account (400), and an account
-  that owns a challenge, as its creator or through an owner membership, cannot be deleted until
-  the challenge is handed to someone else or removed (409). There is no challenge transfer yet.
+- **Deleting an account** (for people who have left). An admin uses "Delete account" in a row's
+  menu on the All users page (`DELETE /api/system/members/{id}`, in `server/src/accounts.rs`). It
+  marks the account deleted (`members.deleted_at`) and removes nothing the person recorded: posts
+  with their snapshots and comments, profile readings, challenge memberships and invites all stay.
+  It does remove what lets them in: device tokens (and the legacy sync token hash is replaced),
+  website sessions (including ones where they were viewing as someone else), the API keys they
+  created, and their admin flag.
+
+  A deleted account gets in nowhere, and the check is made where members are resolved
+  (`auth::session_from_token`, `auth::member_from_bearer`, `auth::api_key_from_bearer`), so
+  anything deleting missed is refused too:
+
+  | Way in | A deleted account gets |
+  | --- | --- |
+  | Password login (`/api/auth/login`) | 401 "invalid email or password", the same as a wrong password |
+  | Website session cookie (every cookie route, `/api/auth/me`) | signed out; 401 on routes that need a member |
+  | Viewing as someone else (their session as impersonator) | signed out |
+  | "View as" them (`/api/system/impersonate`) | 400 "this account has been deleted" |
+  | Sync token (`/api/sync`, `/api/link`, `/api/me/sync-status`) | 401 |
+  | Sync token to website session (`/api/auth/device/web-session`) | 401 |
+  | Session token to sync token (`/api/auth/device/session`) | 401 |
+  | Company join link (`/api/auth/extension/join`) | 403 "this account has been removed; ask an admin to restore it", and no new account is made (only after a valid join code; a wrong code gets the usual join-code message) |
+  | Signup and invite join with their email | 409 "an account with that email already exists" |
+  | API keys they created | 401 (deleted, and refused while the creator is deleted) |
+  | Being made an admin | 400 until restored |
+
+  They are left off leaderboards and challenge standings, member counts and company totals,
+  automatic enrolment (also at server start), member detail pages, `/api/v1/members` and its sync
+  summary. They stay in `/api/v1/posts` for the period they posted in, flagged `authorDeleted`,
+  so past reports do not change. The All users page hides them unless "Show deleted" is on.
+
+  "Restore account" (`POST /api/system/members/{id}/restore`) clears the mark: the person signs in
+  again the usual way and is back on the boards with everything they had. It does not bring back
+  tokens, sessions, API keys or admin access. Deleting a deleted account, or restoring one that is
+  not deleted, succeeds and changes nothing. Two refusals: an admin cannot delete their own account
+  (400), and an account that owns a challenge, as its creator or through an owner membership,
+  cannot be deleted until the challenge is handed to someone else or removed (409). There is no
+  challenge transfer yet.
 
 Differences from the proposal below: the gate is one reusable code rather than single-use
 invites, and a second device needs only the same link. The LinkedIn identity is still an

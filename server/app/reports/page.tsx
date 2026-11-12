@@ -14,6 +14,7 @@ import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { fmtInt, fmtLocalDate, initials } from "../../components/format";
 import { PostText } from "../../components/member-results";
+import { ConfirmModal } from "../../components/confirm-modal";
 
 // The dates on this page are the viewer's own days. The browser knows its time zone and its
 // daylight saving rules, so it turns each day into exact instants and the server needs no time
@@ -285,6 +286,8 @@ function ApiKeys() {
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<{ id: number; name: string } | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const keys = data?.status === 200 ? data.data.keys : [];
   const refresh = () => queryClient.invalidateQueries({ queryKey: getListApiKeysQueryKey() });
   const origin = window.location.origin;
@@ -385,9 +388,8 @@ function ApiKeys() {
                       type="button"
                       disabled={revoke.isPending}
                       onClick={() => {
-                        if (window.confirm(`Revoke "${key.name}"? Anything using it stops working at once.`)) {
-                          revoke.mutate({ id: key.id }, { onSuccess: refresh });
-                        }
+                        setRevokeError(null);
+                        setRevoking({ id: key.id, name: key.name });
                       }}
                     >
                       Revoke
@@ -421,6 +423,35 @@ function ApiKeys() {
           <code>{`${origin}/api/v1/members`}</code> (same key).
         </p>
       </div>
+      <ConfirmModal
+        open={revoking !== null}
+        title="Revoke API key"
+        confirmLabel="Revoke"
+        danger
+        busy={revoke.isPending}
+        error={revokeError}
+        onCancel={() => setRevoking(null)}
+        onConfirm={() => {
+          if (!revoking) return;
+          setRevokeError(null);
+          revoke.mutate(
+            { id: revoking.id },
+            {
+              onSuccess: (res) => {
+                if (res.status !== 200) {
+                  setRevokeError("The key could not be revoked. Try again.");
+                  return;
+                }
+                setRevoking(null);
+                refresh();
+              },
+              onError: () => setRevokeError("The key could not be revoked. Try again."),
+            },
+          );
+        }}
+      >
+        <p>Revoke &ldquo;{revoking?.name}&rdquo;? Anything using it stops working at once.</p>
+      </ConfirmModal>
     </>
   );
 }

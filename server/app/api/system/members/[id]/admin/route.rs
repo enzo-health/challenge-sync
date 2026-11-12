@@ -30,7 +30,7 @@ pub struct SetAdminResponse {
     operation_id = "setMemberAdmin",
     responses(
         (status = 200, description = "Admin flag updated", body = SetAdminResponse),
-        (status = 400, description = "An admin cannot remove their own access", body = ApiError),
+        (status = 400, description = "An admin cannot remove their own access, or grant it to a deleted account", body = ApiError),
         (status = 401, description = "Not an admin", body = ApiError),
         (status = 404, description = "No such member", body = ApiError),
     ),
@@ -50,6 +50,11 @@ pub async fn put(
     // Removing your own flag could leave nobody able to grant it back.
     if target.id == operator.id && !req.is_admin {
         return Err(ApiError::bad_request("you cannot remove your own admin access"));
+    }
+    // Deleting clears the flag so a restored account comes back as an ordinary user. Granting it
+    // in between would quietly undo that, so restore the account first, then decide.
+    if target.is_deleted() && req.is_admin {
+        return Err(ApiError::bad_request("this account has been deleted; restore it first"));
     }
     toasty::update!(Member::filter_by_id(target.id) { is_system_admin: req.is_admin })
         .exec(&mut db)

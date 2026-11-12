@@ -55,6 +55,7 @@ pub async fn post(
     // the same shape join uses, so one prefix covers every un-linked member.
     let urn = format!("pending:{email}");
 
+    // Includes deleted accounts: their address stays taken so that an admin can restore them.
     if member_by_email(&mut db, &email).await?.is_some() {
         return Err(ApiError::conflict(
             "an account with that email already exists",

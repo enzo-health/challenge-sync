@@ -39,7 +39,9 @@ pub async fn post(
         return Err(ApiError::unauthorized("invalid email or password"));
     }
     // Email is the login identifier for everyone — participants and admins alike.
-    let Some(member) = member_by_email(&mut db, &req.email).await? else {
+    // A deleted account gets the same answer as a wrong password, so the response does not say
+    // which accounts exist or what state they are in.
+    let Some(member) = member_by_email(&mut db, &req.email).await?.filter(|m| !m.is_deleted()) else {
         return Err(ApiError::unauthorized("invalid email or password"));
     };
     let ok = member

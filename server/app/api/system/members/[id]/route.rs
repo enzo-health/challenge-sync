@@ -1,13 +1,14 @@
 //! `DELETE /api/system/members/{id}` — delete the account of someone who has left the company.
 //!
-//! Removes the person and everything recorded for them; see `accounts::delete_member` for what
-//! that covers and in what order. It cannot be undone. If they join again later through the
-//! company invite link, they start over with a new, empty account.
+//! Marks the account deleted and signs the person out everywhere; their posts and history are
+//! kept (see `accounts::mark_member_deleted`). They cannot sign in, sync, or join again through
+//! the company link until an admin restores the account (`POST .../restore`). Deleting an account
+//! that is already deleted succeeds and changes nothing but finishing any step that failed.
 
 use axum::extract::Path;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::accounts::{challenge_ownership_refusal, delete_member};
+use linkedin_challenge_server::accounts::{challenge_ownership_refusal, mark_member_deleted};
 use linkedin_challenge_server::dto::require_system_admin;
 use linkedin_challenge_server::models::Member;
 use linkedin_challenge_server::web::ApiError;
@@ -24,7 +25,7 @@ pub struct DeleteMemberResponse {
 #[nextrs::api(
     operation_id = "deleteMember",
     responses(
-        (status = 200, description = "The account and everything recorded for it were deleted", body = DeleteMemberResponse),
+        (status = 200, description = "The account is marked deleted and signed out everywhere (also when it already was)", body = DeleteMemberResponse),
         (status = 400, description = "An admin cannot delete their own account", body = ApiError),
         (status = 401, description = "Not an admin", body = ApiError),
         (status = 404, description = "No such member", body = ApiError),
@@ -50,6 +51,6 @@ pub async fn delete(
     if let Some(message) = challenge_ownership_refusal(&mut db, target.id).await? {
         return Err(ApiError::conflict(message));
     }
-    delete_member(&mut db, &target).await?;
+    mark_member_deleted(&mut db, &target).await?;
     Ok(Json(DeleteMemberResponse { ok: true }))
 }

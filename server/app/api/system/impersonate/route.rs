@@ -32,6 +32,7 @@ pub struct ImpersonateResponse {
     responses(
         (status = 200, description = "Now acting as the target; session cookie replaced", body = ImpersonateResponse),
         (status = 401, description = "Not a system admin", body = ApiError),
+        (status = 400, description = "The account is your own or was deleted", body = ApiError),
         (status = 404, description = "No such member", body = ApiError),
     ),
 )]
@@ -49,6 +50,11 @@ pub async fn post(
         .ok_or_else(|| ApiError::not_found("no such member"))?;
     if target.id == operator.id {
         return Err(ApiError::bad_request("already signed in as this member"));
+    }
+    // The session would read as signed out anyway (see `auth::session_from_token`); saying so
+    // here is clearer than a "View as" that silently lands on the login page.
+    if target.is_deleted() {
+        return Err(ApiError::bad_request("this account has been deleted"));
     }
 
     let cookie = establish_session_as(&mut db, target.id, Some(operator.id)).await?;

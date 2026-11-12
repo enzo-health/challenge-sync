@@ -54,6 +54,7 @@ pub async fn enroll_in_running_challenges(db: &mut Db, member_id: i64) -> toasty
 
 /// Enroll every existing account in every running challenge. Idempotent; run at startup so a
 /// deploy that introduces auto-enrollment backfills the people who signed up before it.
+/// Deleted accounts are skipped; one that is restored joins at its next sign-in.
 ///
 /// Three reads and then only the inserts that are actually missing — on a quiet start, no writes.
 pub async fn enroll_everyone(db: &mut Db) -> toasty::Result<usize> {
@@ -62,7 +63,8 @@ pub async fn enroll_everyone(db: &mut Db) -> toasty::Result<usize> {
     if running.is_empty() {
         return Ok(0);
     }
-    let members = Member::all().exec(&mut *db).await?;
+    let mut members = Member::all().exec(&mut *db).await?;
+    members.retain(|member| !member.is_deleted());
     let existing: std::collections::HashSet<(i64, i64)> = ChallengeMembership::all()
         .exec(&mut *db)
         .await?
