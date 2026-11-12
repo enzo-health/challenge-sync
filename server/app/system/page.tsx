@@ -2,6 +2,8 @@
 // "what is this user actually seeing?". Reachable only with the system-admin flag.
 import {
   getGetSystemOverviewQueryKey,
+  useDeleteMember,
+  useGetMe,
   useGetSystemOverview,
   useImpersonate,
   useRegenerateJoinLink,
@@ -16,9 +18,13 @@ export default function SystemPanel() {
   const impersonate = useImpersonate();
   const setAdmin = useSetMemberAdmin();
   const regenerate = useRegenerateJoinLink();
+  const deleteMember = useDeleteMember();
+  const { data: meData } = useGetMe();
+  const myId = meData?.status === 200 ? meData.data.memberId : undefined;
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [linkError, setLinkError] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <div className="spinner">Loading…</div>;
   if (data?.status !== 200) {
@@ -47,6 +53,32 @@ export default function SystemPanel() {
       },
       onError: () => setLinkError(true),
     });
+  };
+
+  // Permanent, so it asks first. The server refuses some accounts (your own, a challenge owner's)
+  // and says why; that message is shown as it comes.
+  const removeAccount = (id: number, name: string) => {
+    if (
+      !window.confirm(
+        `Delete ${name}'s account? Their posts and history will be permanently removed and cannot be recovered.`,
+      )
+    ) {
+      return;
+    }
+    setDeleteError(null);
+    deleteMember.mutate(
+      { id },
+      {
+        onSuccess: (res) => {
+          if (res.status !== 200) {
+            setDeleteError(res.data?.error || "The account could not be deleted. Try again.");
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: getGetSystemOverviewQueryKey() });
+        },
+        onError: () => setDeleteError("The account could not be deleted. Try again."),
+      },
+    );
   };
 
   return (
@@ -107,6 +139,7 @@ export default function SystemPanel() {
           </>
         )}
       </div>
+      {deleteError && <div className="notice err">{deleteError}</div>}
       <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
             <table>
               <thead>
@@ -179,6 +212,19 @@ export default function SystemPanel() {
                         >
                           View as
                         </button>
+                      )}
+                      {myId !== undefined && m.id !== myId && (
+                        <>
+                          {" "}
+                          <button
+                            className="btn ghost sm"
+                            type="button"
+                            disabled={deleteMember.isPending}
+                            onClick={() => removeAccount(m.id, m.displayName)}
+                          >
+                            Delete
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>

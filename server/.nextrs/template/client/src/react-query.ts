@@ -16,5 +16,6 @@ export * from "./generated/react-query";
 // point without editing generated output.
 export { useCreateChallenge } from "./generated/react-query/challenges/challenges";
 export { useCreateInvites } from "./generated/react-query/invites/invites";
+export { useDeleteMember } from "./generated/react-query/members/members";
 export { useSetChallengeFavorite } from "./generated/react-query/favorite/favorite";
 export { useUpdateChallenge } from "./generated/react-query/challenges/challenges";

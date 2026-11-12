@@ -23,6 +23,17 @@ original proposal, kept for the reasoning.
   the All users page, which also shows, generates and replaces the join link. The first admin is set in the database.
 - **Kept:** the email and password login, at `/auth/password`, for accounts that have one. The
   signup page is gone; the signup API remains for the tests and is still limited to enzo.health.
+- **Deleting an account** (for people who have left). An admin uses "Delete" on the All users
+  page (`DELETE /api/system/members/{id}`, in `server/src/accounts.rs`). It permanently removes
+  the person's posts with their snapshots and comments, profile snapshots, device tokens (their
+  extension is refused at once), website sessions (including ones where they were viewing as
+  someone else), challenge memberships, invites addressed to their email, the API keys they
+  created, and finally the account itself. It cannot be undone. If they open the join link again
+  later, they get a new, empty account. Kept: a join link they generated (it keeps working for
+  everyone else), and comments they left on other people's posts (those count towards the other
+  person's post). Two refusals: an admin cannot delete their own account (400), and an account
+  that owns a challenge, as its creator or through an owner membership, cannot be deleted until
+  the challenge is handed to someone else or removed (409). There is no challenge transfer yet.
 
 Differences from the proposal below: the gate is one reusable code rather than single-use
 invites, and a second device needs only the same link. The LinkedIn identity is still an

@@ -88,6 +88,7 @@ check:
     python3 server/scripts/test-sync-devices-e2e.py
     python3 server/scripts/test-extension-join-e2e.py
     python3 server/scripts/test-reports-e2e.py
+    python3 server/scripts/test-delete-member-e2e.py
     node scripts/test-extension-e2e.mjs
     node scripts/test-join-flow-e2e.mjs
     git diff --check
@@ -127,6 +128,11 @@ test-extension-join-e2e:
 test-reports-e2e:
     cd server && cargo build --bin linkedin-challenge-server
     python3 server/scripts/test-reports-e2e.py
+
+# Verify deleting an account: who may, the refusals, what is removed, and re-joining afterwards.
+test-delete-member-e2e:
+    cd server && cargo build --bin linkedin-challenge-server
+    python3 server/scripts/test-delete-member-e2e.py
 
 # Exercise password auth against a real server and isolated temporary database.
 test-auth-e2e:
