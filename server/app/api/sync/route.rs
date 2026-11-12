@@ -3,6 +3,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
+use linkedin_challenge_server::accounts::delete_posts;
 use linkedin_challenge_server::auth::member_from_bearer;
 use linkedin_challenge_server::models::{Member, Post, PostComment, PostSnapshot, ProfileSnapshot};
 use linkedin_challenge_server::util::{now_unix, parse_iso8601};
@@ -195,17 +196,7 @@ pub async fn post(
             }
         }
     }
-    if !doomed.is_empty() {
-        PostComment::filter(PostComment::fields().post_id().in_list(doomed.clone()))
-            .delete()
-            .exec(&mut db)
-            .await?;
-        PostSnapshot::filter(PostSnapshot::fields().post_id().in_list(doomed.clone()))
-            .delete()
-            .exec(&mut db)
-            .await?;
-        Post::filter(Post::fields().id().in_list(doomed)).delete().exec(&mut db).await?;
-    }
+    delete_posts(&mut db, doomed).await?;
 
     // URNs in this batch that already belong to someone else. One batched check keeps the old
     // guarantee — a post is never reassigned between members — without a lookup per post.
