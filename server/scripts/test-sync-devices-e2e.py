@@ -4,7 +4,9 @@
 * two members whose feeds carry the SAME comment URN (a repost of a teammate's post) both sync
   without a unique-index failure, and the reposter's copy is neither stored nor scored;
 * linking a second device does not unlink the first, and /api/me/sync-status reports the
-  account-wide count on both.
+  account-wide count on both;
+* a post past the refresh window that the extension leaves out of `posts` is neither deleted nor
+  regressed, and an old extension's `postFeedComplete` reconciliation still works.
 """
 import datetime as dt
 import http.cookiejar
@@ -107,6 +109,49 @@ with tempfile.TemporaryDirectory(prefix='sync-devices-e2e-') as directory:
               status_second['postsCount'] == status_first['postsCount'] >= 2 and status_second['lastSyncAt'] is not None)
         device.request('/api/me/sync-status', token='st_bogus', status=401)
         check('unknown token is rejected on sync-status', True)
+
+        # --- posts past the refresh window -------------------------------------------------------
+        # The extension stops re-reading posts older than four weeks. It leaves them out of
+        # `posts`, keeps `postFeedComplete` false (an older server would delete them otherwise),
+        # and names the whole page in `completePostFeedUrns`.
+        window = Client()
+        window.request('/api/auth/signup', {'name': 'Refresh Window E2E', 'email': 'refresh-window-e2e@enzo.health', 'password': 'RefreshWindowE2E!123'})
+        window_token = window.device_token()
+        def aged(urn, days, metrics):
+            created = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
+            return {'urn': urn, 'permalink': 'https://www.linkedin.com/feed/', 'createdAt': created,
+                    'textPreview': 'e2e', 'metrics': metrics, 'comments': []}
+        def window_sync(posts, **extra):
+            return window.request('/api/sync', {'profile': {'followerCount': 100}, 'posts': posts, **extra}, token=window_token)
+        def window_posts():
+            return {p['urn']: p for p in window.request('/api/me/posts')['posts']}
+        full = {'impressions': 500, 'reactions': 10, 'comments': 0, 'reposts': 1, 'sends': 3, 'saves': 2}
+        young, old, gone, nested = 'urn:li:activity:young', 'urn:li:activity:old', 'urn:li:activity:gone', 'urn:li:activity:nested'
+        # First sight records everything once, old posts included, with full analytics.
+        window_sync([aged(young, 10, full), aged(old, 40, full), aged(gone, 12, full), aged(nested, 50, full)])
+        check('a post first seen past the window is recorded once', set(window_posts()) == {young, old, gone, nested})
+        before = window_posts()[old]
+        # A later sync refreshes only the young post; `gone` has been deleted on LinkedIn and
+        # `nested` turns out to be a reshared original.
+        result = window_sync([aged(young, 10, {**full, 'reactions': 20})], postFeedComplete=False,
+                             completePostFeedUrns=[young, old], excludedPostUrns=[nested])
+        after = window_posts()
+        check('only refreshed posts count as ingested', result['postsIngested'] == 1)
+        check('an unrefreshed old post named in completePostFeedUrns is not deleted', old in after)
+        check('a post missing from completePostFeedUrns is still reconciled as deleted', gone not in after)
+        check('excludedPostUrns still removes a nested original', nested not in after)
+        check("an unrefreshed old post keeps every recorded number",
+              all(after[old][k] == before[k] for k in ('impressions', 'reactions', 'reposts', 'sends', 'saves')))
+        check('the refreshed young post moved on', after[young]['reactions'] == 20 and after[young]['impressions'] == 500)
+        # Without completePostFeedUrns and with postFeedComplete false (what the new extension sends
+        # an older server, and what any full page sends), nothing is deleted.
+        window_sync([aged(young, 10, full)])
+        check('no completeness claim deletes nothing', set(window_posts()) == {young, old})
+        # An old extension (0.1.2) sends every post and the old flag; reconciliation is unchanged.
+        window_sync([aged(young, 10, full), aged(old, 40, full)], postFeedComplete=True)
+        check('an old extension sending every post keeps both', set(window_posts()) == {young, old})
+        window_sync([aged(young, 10, full)], postFeedComplete=True)
+        check('an old extension still reconciles deletions with postFeedComplete alone', set(window_posts()) == {young})
     finally:
         process.terminate()
         process.wait()

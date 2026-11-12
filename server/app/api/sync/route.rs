@@ -53,6 +53,13 @@ pub struct SyncRequest {
     /// `posts` evidence of deletion rather than pagination.
     #[serde(default)]
     pub post_feed_complete: bool,
+    /// Every post URN on an under-full feed page, including posts left out of `posts` because they
+    /// are past the refresh window and already recorded. Present only when the page is complete;
+    /// reconciliation then keeps everything named here. It is a separate field because
+    /// `post_feed_complete` must stay false whenever posts were left out: a server that predates
+    /// this field would otherwise delete them.
+    #[serde(default)]
+    pub complete_post_feed_urns: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -164,9 +171,19 @@ pub async fn post(
     // A deleted-and-reposted LinkedIn post has a new activity URN. When the feed page is known to
     // be complete, remove stored URNs LinkedIn no longer returns so the deleted original does not
     // live forever beside its replacement. Never reconcile a full page: missing rows may be on the
-    // next page rather than deleted.
-    if req.post_feed_complete {
-        let current_urns: HashSet<&str> = req.posts.iter().map(|post| post.urn.as_str()).collect();
+    // next page rather than deleted. Posts past the refresh window are on the page but not in
+    // `posts`; `complete_post_feed_urns` names them so they are not mistaken for deleted.
+    let current_urns: Option<HashSet<&str>> = match &req.complete_post_feed_urns {
+        Some(urns) => Some(
+            urns.iter()
+                .map(String::as_str)
+                .chain(req.posts.iter().map(|post| post.urn.as_str()))
+                .collect(),
+        ),
+        None if req.post_feed_complete => Some(req.posts.iter().map(|post| post.urn.as_str()).collect()),
+        None => None,
+    };
+    if let Some(current_urns) = current_urns {
         let gone: Vec<String> = stored
             .keys()
             .filter(|urn| !current_urns.contains(urn.as_str()))

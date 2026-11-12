@@ -50,7 +50,9 @@ Content-Type: application/json
     "followerCount": 1234,
     "profileViews": 56              // author-only; null if not collected this run
   },
-  "postFeedComplete": true,          // safe to reconcile deleted posts only when page is under-full
+  "postFeedComplete": true,          // legacy: page under-full AND every post on it is in `posts`
+  "completePostFeedUrns": ["urn:li:activity:7231000000000000000"], // page under-full: every URN on it
+  "excludedPostUrns": [],            // reshared originals nested in the feed; not this member's
   "posts": [
     {
       "urn": "urn:li:activity:7231000000000000000",
@@ -78,6 +80,33 @@ Content-Type: application/json
 }
 ```
 
+### Refresh window
+
+The extension reads the member's latest 30 posts in one feed request, then spends one or two more
+requests per post on author analytics and comments. A post's numbers settle within a couple of
+weeks, so posts older than `REFRESH_WINDOW_DAYS` (28, `extension/config.js`), measured from
+`createdAt` at sync time, are not re-read once the server has them:
+
+- They are left out of `posts`, so the server writes no new snapshot and the last full reading
+  taken before the cutoff stays the one scoring reads. Nothing about them changes on the server.
+- "Once the server has them" is per install: the extension remembers which URNs from the feed page
+  the server accepted (`recordedPosts` in `chrome.storage.local`, keyed by LinkedIn member). An old
+  post it has not delivered yet, such as a new member's history, is read in full once. A second
+  device or a reinstall re-reads old posts once, which costs requests but loses nothing.
+- A post with no readable `createdAt` is always refreshed.
+
+Leaving posts out must not look like deleting them. Deletion reconciliation (removing stored posts
+LinkedIn no longer returns, for deleted-and-reposted posts) only runs on an under-full feed page:
+
+- `completePostFeedUrns`, sent only for an under-full page, lists every post on it, refreshed or
+  not. The server keeps any stored post named there or in `posts` and removes the rest.
+- `postFeedComplete` keeps its original meaning, "absence from `posts` means deleted", so the
+  extension sends it as true only when it left nothing out. A server that predates
+  `completePostFeedUrns` ignores that field; with `postFeedComplete` false it deletes nothing and
+  only skips reconciliation until it is updated.
+- An extension that predates the window sends every post and only `postFeedComplete`, which the
+  server handles as before.
+
 Comments are read from the server-rendered post page (`/feed/update/urn:li:activity:{id}/`) —
 every Voyager comments endpoint answers 400/404 now. Each rendered comment carries its URN, the
 commenter's profile link, and a label naming them, so `commenterUrn` is a
@@ -103,7 +132,8 @@ Errors: `401` bad/expired token.
 
 - The server records `capturedAt` from the client but also stamps its own `receivedAt` and uses the
   server clock for windowing decisions (clients can lie / be skewed).
-- Each sync writes one `ProfileSnapshot` and one `PostSnapshot` per post (append-only, time series).
+- Each sync writes one `ProfileSnapshot` and one `PostSnapshot` per post in `posts` (append-only,
+  time series). Posts left out for the refresh window get nothing new.
 - `Post` rows are upserted by `(user, urn)`; snapshots are always inserted.
 - Scores are computed from snapshots at read time — the ingest never computes score.
 

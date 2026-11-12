@@ -99,6 +99,8 @@ Per **post**: URN, permalink, created time, text preview. Per **post snapshot**:
 - Low cadence: default every ~6 hours via `chrome.alarms`, with random jitter.
 - Own data only; read-only; never posts, likes, or messages on the user's behalf.
 - Sequential requests with small delays; back off on 429/401.
+- Posts older than four weeks are not re-read once recorded (no analytics or comments requests);
+  see "Refresh window" in `docs/sync-protocol.md`.
 - On repeated 401, surface "please reopen LinkedIn / re-login" in the popup rather than hammering.
 - All fragile endpoint logic isolated in `extension/linkedin.js` so a LinkedIn change is a
   one-file fix.

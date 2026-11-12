@@ -8,6 +8,7 @@
 // See docs/linkedin-scraping.md for endpoint research and rationale. Endpoints are best-effort:
 // each collector returns whatever it can and degrades to null rather than throwing.
 import { LINKEDIN_ORIGIN, REQUEST_DELAY_MS, MAX_POSTS } from "./config.js";
+import { planRefresh, recordedUrnsFor } from "./refresh.js";
 
 const VOYAGER = `${LINKEDIN_ORIGIN}/voyager/api`;
 
@@ -704,7 +705,10 @@ export async function diagnose() {
 // ---- orchestration --------------------------------------------------------
 
 // Collect a full snapshot batch matching docs/sync-protocol.md. Sequential + polite.
-export async function collectSnapshot() {
+//
+// `recordedPosts` is what this install has already delivered (see storage.js); with it, posts past
+// the refresh window are not re-read. Without it every post on the page is refreshed.
+export async function collectSnapshot({ recordedPosts = null } = {}) {
   const me = await getMe(); // throws NOT_LOGGED_IN if no session
   await sleep(REQUEST_DELAY_MS);
 
@@ -716,9 +720,12 @@ export async function collectSnapshot() {
   await sleep(REQUEST_DELAY_MS);
 
   // Posts arrive with engagement attached — one request, not one per post.
-  const { posts, followerCount: feedFollowers, excludedPostUrns, postFeedComplete } =
-    await getPostFeed(me.memberUrn);
-  const followerCount = ownFollowers ?? feedFollowers;
+  const feed = await getPostFeed(me.memberUrn);
+  const followerCount = ownFollowers ?? feed.followerCount;
+
+  // Old posts this install already delivered get no analytics or comments requests at all.
+  const { posts, unrefreshedPostUrns, postFeedComplete, completePostFeedUrns } =
+    planRefresh(feed, recordedUrnsFor(recordedPosts, me.memberUrn));
 
   for (const post of posts) {
     const analytics = await getPostAnalytics(post.urn);
@@ -738,7 +745,9 @@ export async function collectSnapshot() {
     me,
     profile: { followerCount, profileViews },
     posts,
-    excludedPostUrns,
+    unrefreshedPostUrns,
+    excludedPostUrns: feed.excludedPostUrns,
     postFeedComplete,
+    completePostFeedUrns,
   };
 }

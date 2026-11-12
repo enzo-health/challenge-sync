@@ -50,6 +50,7 @@ deploy-check:
     node --check extension/config.js
     node --check extension/linkedin.js
     node --check extension/popup.js
+    node --check extension/refresh.js
     node --check extension/diagnostics.js
     node --check extension/storage.js
     node --check extension/sync.js
@@ -76,10 +77,12 @@ check:
     node --check extension/config.js
     node --check extension/linkedin.js
     node --check extension/popup.js
+    node --check extension/refresh.js
     node --check extension/diagnostics.js
     node --check extension/storage.js
     node --check extension/sync.js
     bash -n extension/build.sh
+    node scripts/test-refresh-window.mjs
     server/scripts/test-auth-e2e.sh
     python3 server/scripts/test-followers-e2e.py
     python3 server/scripts/test-sync-devices-e2e.py

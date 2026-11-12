@@ -11,6 +11,10 @@ const DEFAULTS = {
   lastError: null,       // human-readable last error, or null
   lastPostsIngested: 0,
   syncJitterMinutes: null, // per-install offset added to the 12h floor, fixed at first sync
+  // { memberUrn, urns }: the posts on the latest feed page that the server has accepted from this
+  // install. Lets a sync skip re-reading posts past the refresh window (see refresh.js) while
+  // still recording an old post it has never delivered. At most one feed page of URNs.
+  recordedPosts: null,
 };
 
 export async function getState() {

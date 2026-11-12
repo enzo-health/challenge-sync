@@ -115,17 +115,23 @@ async function runSync({ manual = false } = {}) {
   }
 
   try {
-    const snap = await collectSnapshot();
+    const snap = await collectSnapshot({ recordedPosts: (await getState()).recordedPosts });
     const payload = {
       capturedAt: new Date().toISOString(),
       profile: snap.profile,
       posts: snap.posts,
       excludedPostUrns: snap.excludedPostUrns,
       postFeedComplete: snap.postFeedComplete,
+      completePostFeedUrns: snap.completePostFeedUrns,
     };
     const result = await pushSnapshot(payload);
     const { syncJitterMinutes } = await getState();
     await setState({
+      // Only after the server accepted the batch: a post counts as recorded once it has landed.
+      recordedPosts: {
+        memberUrn: snap.me.memberUrn,
+        urns: [...snap.posts.map((post) => post.urn), ...snap.unrefreshedPostUrns],
+      },
       lastSyncAt: new Date().toISOString(),
       lastError: null,
       lastPostsIngested: result.postsIngested ?? snap.posts.length,
