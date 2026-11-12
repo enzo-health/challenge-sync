@@ -85,6 +85,7 @@ check:
     python3 server/scripts/test-sync-devices-e2e.py
     python3 server/scripts/test-extension-join-e2e.py
     node scripts/test-extension-e2e.mjs
+    node scripts/test-join-flow-e2e.mjs
     git diff --check
 
 # LinkedIn sessions expire after a couple of weeks; then test-extension-e2e fails NOT_LOGGED_IN.
@@ -101,6 +102,12 @@ dev-profile-login:
 # Set EXPECTED_FOLLOWERS=<n> to also assert the count within 15%. Session expired? `just dev-profile-login`.
 test-extension-e2e: extension-dev
     node scripts/test-extension-e2e.mjs
+
+# Drive no-password sign-in in headless Chromium on the signed-in dev profile: open the join link
+# on a throwaway local server and assert the site signs in and the first sync stores posts.
+test-join-flow-e2e: extension-dev
+    cd server && cargo build --bin linkedin-challenge-server
+    node scripts/test-join-flow-e2e.mjs
 
 # Verify repost comment collisions and multi-device sync tokens on an isolated local database.
 test-sync-devices-e2e:
