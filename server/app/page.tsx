@@ -69,7 +69,9 @@ function Trophy() {
       <path d="M40 88h40l6 10H34z" fill="#e8c24f" />
       <rect x="28" y="98" width="64" height="12" rx="3" fill="#0b2b2b" />
       <rect x="48" y="34" width="24" height="18" rx="4" fill="#0d6b6b" />
-      <text x="60" y="48" textAnchor="middle" fontSize="13" fontWeight="700" fill="#d5f79a" fontFamily="system-ui, sans-serif">in</text>
+      <rect x="53" y="44" width="4" height="5" fill="#d5f79a" />
+      <rect x="58" y="41" width="4" height="8" fill="#d5f79a" />
+      <rect x="63" y="37" width="4" height="12" fill="#d5f79a" />
       <path d="M16 38l3-6 3 6 6 3-6 3-3 6-3-6-6-3z" fill="#d5f79a" />
       <path d="M104 44l2-4 2 4 4 2-4 2-2 4-2-4-4-2z" fill="#0d7c7c" />
       <path d="M100 76l2-4 2 4 4 2-4 2-2 4-2-4-4-2z" fill="#e8c24f" />

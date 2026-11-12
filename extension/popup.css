@@ -1,10 +1,10 @@
 :root {
   --bg: #ffffff;
-  --fg: #1d2226;
-  --muted: #56687a;
-  --line: #e3e6ea;
-  --brand: #0a66c2;
-  --brand-dark: #004182;
+  --fg: #1c1917;
+  --muted: #57534e;
+  --line: #e7e5e4;
+  --brand: #015a5d;
+  --brand-dark: #004146;
   --error: #b42318;
   --ok: #027a48;
 }
@@ -20,8 +20,7 @@ body {
 header { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
 .logo {
   width: 34px; height: 34px; border-radius: 7px;
-  background: var(--brand); color: #fff; font-weight: 800;
-  display: grid; place-items: center; font-size: 16px;
+  display: block;
 }
 h1 { font-size: 15px; margin: 0; }
 .tag { margin: 0; color: var(--muted); font-size: 12px; }
@@ -40,10 +39,10 @@ button {
 .primary { background: var(--brand); color: #fff; }
 .primary:hover { background: var(--brand-dark); }
 .primary:disabled { opacity: .6; cursor: default; }
-.secondary-action { background: #e8f3ff; color: var(--brand-dark); border-color: #b7d7f5; margin-top: 12px; }
-.secondary-action:hover { background: #d7eaff; }
+.secondary-action { background: #f0faf7; color: var(--brand-dark); border-color: #b2ded2; margin-top: 12px; }
+.secondary-action:hover { background: #d5eee7; }
 .ghost { background: transparent; color: var(--muted); border-color: var(--line); margin-top: 8px; }
-.ghost:hover { background: #f3f5f7; }
+.ghost:hover { background: #f5f5f4; }
 .ghost.diagnostic-error { color: var(--error); border-color: var(--error); }
 .ghost.diagnostic-error:hover { background: rgba(180, 35, 24, .08); }
 .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
@@ -61,10 +60,10 @@ button {
 .toast.ok { background: var(--ok); }
 .toast.err { background: var(--error); }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#1b1f23; --fg:#e8eaed; --muted:#9aa7b2; --line:#333a40; }
-  .secondary-action { background:#193854; color:#b9dcff; border-color:#315b80; }
-  .secondary-action:hover { background:#214765; }
-  .ghost:hover { background:#252a2e; }
+  :root { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --brand:#2d9d91; --brand-dark:#85c5b8; }
+  .secondary-action { background:#003438; color:#b2ded2; border-color:#004a50; }
+  .secondary-action:hover { background:#004146; }
+  .ghost:hover { background:#322e2b; }
 }
 
 /* Preflight checklist: two prerequisites, each with its own fix. */
@@ -76,5 +75,5 @@ button {
 .checks li.bad .label { color: #b42318; }
 .linkish {
   background: none; border: 0; padding: 0; margin-left: auto;
-  color: #0a66c2; cursor: pointer; font-size: 12px; text-decoration: underline; width: auto;
+  color: var(--brand); cursor: pointer; font-size: 12px; text-decoration: underline; width: auto;
 }

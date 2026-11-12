@@ -1,4 +1,4 @@
-//! LinkedIn Challenge server — a nextrs (Axum) + Toasty (libsql/Turso) app.
+//! Challenge Sync server — a nextrs (Axum) + Toasty (libsql/Turso) app.
 //!
 //! Run with `cargo dev`. Env:
 //!   DATABASE_URL  connection string (default `turso:linkedin.db` — a local libsql file)

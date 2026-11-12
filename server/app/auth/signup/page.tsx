@@ -12,10 +12,10 @@ export default function Signup() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-brand" aria-hidden="true">in</div>
-        <p className="auth-eyebrow">LinkedIn Challenge</p>
+        <div className="auth-brand" aria-hidden="true"><img src="/favicon.svg" alt="" /></div>
+        <p className="auth-eyebrow">Challenge Sync</p>
         <h1>Create your account</h1>
-        <p className="auth-intro">Start syncing your LinkedIn results. You can set up challenges later.</p>
+        <p className="auth-intro">Create a Challenge Sync account to start syncing your post results. You can set up challenges later.</p>
 
         {error && <div className="notice err" role="alert">{error}</div>}
 

@@ -9,7 +9,7 @@ on:
       server_url:
         description: Production HTTPS origin baked into the extension
         required: true
-        default: https://linkedin-challenge-ruby.vercel.app
+        default: https://social-challenge.enzo.health
         type: string
       tag:
         description: Release tag; must match extension-v<manifest version>
@@ -28,7 +28,7 @@ jobs:
 
       - name: Build verified extension zip
         env:
-          EXTENSION_SERVER_URL: ${{ inputs.server_url || 'https://linkedin-challenge-ruby.vercel.app' }}
+          EXTENSION_SERVER_URL: ${{ inputs.server_url || 'https://social-challenge.enzo.health' }}
         run: |
           [[ "$EXTENSION_SERVER_URL" == https://* ]] || {
             echo "server_url must be a production HTTPS origin" >&2

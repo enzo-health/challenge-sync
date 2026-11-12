@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Challenge Sync — LinkedIn",
+  "name": "Challenge Sync",
   "version": "0.1.2",
   "description": "Privately syncs your own LinkedIn stats to your company's posting challenge. Reads your data only; never your password.",
-  "homepage_url": "https://linkedin-challenge-ruby.vercel.app",
+  "homepage_url": "https://social-challenge.enzo.health",
   "permissions": ["storage", "alarms", "cookies"],
   "host_permissions": [
     "https://www.linkedin.com/*",

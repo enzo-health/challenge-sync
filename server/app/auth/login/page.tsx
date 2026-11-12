@@ -12,11 +12,11 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand" aria-hidden="true">
-          in
+          <img src="/favicon.svg" alt="" />
         </div>
-        <p className="auth-eyebrow">LinkedIn Challenge</p>
+        <p className="auth-eyebrow">Challenge Sync</p>
         <h1>Welcome back</h1>
-        <p className="auth-intro">Sign in to sync your LinkedIn results and see how you&rsquo;re doing.</p>
+        <p className="auth-intro">Sign in with your Challenge Sync account to see how your posts are doing.</p>
 
         {error && (
           <div className="notice err" role="alert">

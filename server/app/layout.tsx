@@ -79,8 +79,8 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <a href="/me" className="brand">
-        <span className="mark">in</span>
-        <span className="brand-name">Challenge</span>
+        <span className="mark"><img src="/favicon.svg" alt="" /></span>
+        <span className="brand-name">Challenge Sync</span>
       </a>
 
       <nav className="side-nav">
@@ -181,7 +181,7 @@ function Sidebar() {
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
-      <title>Challenge — LinkedIn leaderboard</title>
+      <title>Challenge Sync</title>
       {/* No manual stylesheet link: the bundler injects a content-hashed copy of public/style.css,
           and an unhashed /style.css link loaded after it would let a browser's cached copy override
           every CSS change until the cache expired. */}

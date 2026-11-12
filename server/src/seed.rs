@@ -62,7 +62,7 @@ pub async fn seed_local_account(db: &mut Db) -> toasty::Result<()> {
 }
 
 async fn ensure_local_challenge(db: &mut Db, member: &Member) -> toasty::Result<()> {
-    // The LinkedIn Cup window and rules — the same ones the production challenge runs.
+    // The Posting Cup window and rules — the same ones the production challenge runs.
     let start = parse_date("2026-07-13").expect("valid local challenge start");
     let end = parse_date("2026-09-30").expect("valid local challenge end") + 86_399;
     let cfg = ScoringConfig::default();
@@ -70,11 +70,11 @@ async fn ensure_local_challenge(db: &mut Db, member: &Member) -> toasty::Result<
         .exec(&mut *db)
         .await?
         .into_iter()
-        .find(|challenge| challenge.creator_id == member.id && (challenge.name == "Q3 World Cup" || challenge.name == "LinkedIn Cup"));
+        .find(|challenge| challenge.creator_id == member.id && (challenge.name == "Q3 World Cup" || challenge.name == "LinkedIn Cup" || challenge.name == "Posting Cup"));
     let challenge = match existing {
         Some(challenge) => {
             toasty::update!(Competition::filter_by_id(challenge.id) {
-                name: "LinkedIn Cup",
+                name: "Posting Cup",
                 start_at: start,
                 end_at: end,
                 max_posts_per_week: cfg.max_posts_per_week as i64,
@@ -111,7 +111,7 @@ async fn ensure_local_challenge(db: &mut Db, member: &Member) -> toasty::Result<
             toasty::create!(Competition {
                 org_id: member.org_id,
                 creator_id: member.id,
-                name: "LinkedIn Cup",
+                name: "Posting Cup",
                 start_at: start,
                 end_at: end,
                 max_posts_per_week: cfg.max_posts_per_week as i64,

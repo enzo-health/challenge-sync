@@ -8,6 +8,7 @@
     }
   },
   "git": { "deploymentEnabled": false },
+  "regions": ["pdx1"],
   "headers": [
     {
       "source": "/dist/(.*)",

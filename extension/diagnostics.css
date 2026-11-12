@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --brand: #0a66c2; --line: #d9e0e7; --muted: #5b6b7b; }
+:root { color-scheme: light dark; --brand: #015a5d; --line: #e7e5e4; --muted: #78716c; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
 main { max-width: 980px; margin: 0 auto; padding: 40px 24px 64px; }

@@ -8,8 +8,9 @@ invocation, and that is the decision to make before anything else.
 
 | | |
 |---|---|
-| URL | https://linkedin-challenge-ruby.vercel.app |
-| Database | Neon Postgres (`neon-charcoal-zebra`), provisioned through the Vercel integration |
+| URL | https://social-challenge.enzo.health |
+| Vercel project | `challenge-sync` in the `enzo-health` team, functions in `pdx1` |
+| Database | Neon Postgres, project `weathered-union-94046949` (us-west-2), branch `production`; `DATABASE_URL` is the pooled connection string |
 | Protection | SSO off — the app is public, and authenticates its own users |
 | Seeding | `SEED_DEMO` unset, so no demo org exists in production |
 
@@ -97,9 +98,9 @@ example both carry one with a comment explaining this; only the scaffold omits i
 ## Verifying a deploy
 
 ```sh
-curl -sS https://linkedin-challenge-ruby.vercel.app/api/health   # {"ok":true} — no database involved
-curl -sS -o /dev/null -w '%{http_code}\n' https://linkedin-challenge-ruby.vercel.app/auth/login  # 200
-curl -sS -o /dev/null -w '%{http_code}\n' https://linkedin-challenge-ruby.vercel.app/            # 303
+curl -sS https://social-challenge.enzo.health/api/health   # {"ok":true} — no database involved
+curl -sS -o /dev/null -w '%{http_code}\n' https://social-challenge.enzo.health/auth/login  # 200
+curl -sS -o /dev/null -w '%{http_code}\n' https://social-challenge.enzo.health/            # 303
 ```
 
 `/api/health` deliberately touches no database, so it separates "the function is alive" from "the

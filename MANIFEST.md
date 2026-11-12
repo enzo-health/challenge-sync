@@ -1,8 +1,8 @@
-# LinkedIn Challenge — Product Manifest
+# Challenge Sync — Product Manifest
 
 ## What this is
 
-LinkedIn Challenge helps a company run internal posting challenges. A company invites its people,
+Challenge Sync helps a company run internal posting challenges. A company invites its people,
 sets up a challenge and its rules, and gets a leaderboard based on the performance of each person's
 LinkedIn posts.
 

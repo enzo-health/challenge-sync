@@ -1,4 +1,4 @@
-# LinkedIn Challenge
+# Challenge Sync
 
 A better system for running company LinkedIn posting competitions. Instead of a central web scraper
 (flaky, and blind to author-only analytics), each participant installs a **Chrome extension** ([Chrome Web Store listing](https://chromewebstore.google.com/detail/challenge-sync-%E2%80%94-linkedin/lipnimkomknkipidfloeigpojfilgjfh)) that

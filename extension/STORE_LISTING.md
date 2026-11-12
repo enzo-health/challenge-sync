@@ -1,24 +1,24 @@
-# Chrome Web Store submission — Challenge Sync for LinkedIn
+# Chrome Web Store submission — Challenge Sync
 
 ## Release file
 
 Build with:
 
 ```sh
-just extension-release https://linkedin-challenge-ruby.vercel.app
+just extension-release https://social-challenge.enzo.health
 ```
 
 Upload `extension/dist/challenge-sync-0.1.1.zip`.
 
-Production homepage: <https://linkedin-challenge-ruby.vercel.app>
+Production homepage: <https://social-challenge.enzo.health>
 
-Privacy policy: <https://linkedin-challenge-ruby.vercel.app/privacy>
+Privacy policy: <https://social-challenge.enzo.health/privacy>
 
 ## Listing copy
 
 ### Name
 
-Challenge Sync for LinkedIn
+Challenge Sync
 
 ### Summary
 
@@ -71,7 +71,7 @@ Reads the Challenge website's session cookie once to connect the extension to th
 
 Required to request the signed-in user's own profile, posts, and author analytics from LinkedIn and to confirm that the user is signed in.
 
-### `https://linkedin-challenge-ruby.vercel.app/*`
+### `https://social-challenge.enzo.health/*`
 
 Required to exchange the existing Challenge session for a revocable extension token and upload the user's synchronized post analytics to their Challenge account.
 

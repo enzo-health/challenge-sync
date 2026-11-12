@@ -1,4 +1,4 @@
-# LinkedIn Challenge — server
+# Challenge Sync — server
 
 A full-stack Rust app built on [nextrs](https://github.com/drewhirschi/nextrs) — an Axum backend
 serving Next.js-style file routes with React client pages — with

@@ -53,7 +53,7 @@ export default function PrivacyPage() {
       <h2>Contact and deletion requests</h2>
       <p>
         To ask a privacy question or request deletion, contact the publisher through the project&rsquo;s{" "}
-        <a href="https://github.com/drewhirschi/linkedin-challenge/issues">support tracker</a>.
+        <a href="https://github.com/enzo-health/challenge-sync/issues">support tracker</a>.
         Do not include passwords, session cookies, or other secrets in a public issue.
       </p>
     </article>
