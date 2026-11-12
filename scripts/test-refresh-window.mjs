@@ -38,7 +38,7 @@ check("a post with no readable creation time is always refreshed", () => {
 });
 
 const feed = {
-  posts: [post("urn:li:activity:young", 10), post("urn:li:activity:old", 40), post("urn:li:activity:undated", null)],
+  posts: [post("urn:li:activity:young", 10), post("urn:li:activity:old", 60), post("urn:li:activity:undated", null)],
   postFeedComplete: true,
 };
 
