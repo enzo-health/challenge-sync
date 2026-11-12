@@ -481,6 +481,77 @@ pub struct PostSnapshot {
     pub followers_from_post: Option<i64>,
 }
 
+impl PostSnapshot {
+    /// Fill every metric this reading lacks from `earlier`, a stored reading of the same post.
+    /// Values this reading has are kept, and nothing is filled where `earlier` has none either.
+    /// Destructured like `same_reading`, so a new metric column must be listed here to compile.
+    pub fn carry_forward_from(&mut self, earlier: &PostSnapshot) {
+        let PostSnapshot {
+            id: _,
+            post_id: _,
+            post: _,
+            captured_at: _,
+            impressions,
+            reactions,
+            comments,
+            reposts,
+            sends,
+            saves,
+            impressions_in_network,
+            impressions_out_of_network,
+            members_reached,
+            profile_viewers_from_post,
+            followers_from_post,
+        } = self;
+        *impressions = impressions.or(earlier.impressions);
+        *reactions = reactions.or(earlier.reactions);
+        *comments = comments.or(earlier.comments);
+        *reposts = reposts.or(earlier.reposts);
+        *sends = sends.or(earlier.sends);
+        *saves = saves.or(earlier.saves);
+        *impressions_in_network = impressions_in_network.or(earlier.impressions_in_network);
+        *impressions_out_of_network = impressions_out_of_network.or(earlier.impressions_out_of_network);
+        *members_reached = members_reached.or(earlier.members_reached);
+        *profile_viewers_from_post = profile_viewers_from_post.or(earlier.profile_viewers_from_post);
+        *followers_from_post = followers_from_post.or(earlier.followers_from_post);
+    }
+
+    /// True when every recorded metric matches (`None` matching `None`). Sync skips a reading that
+    /// matches the post's latest one, because a repeat adds nothing scoring or the UI could read.
+    /// The destructuring names every field so a new metric column cannot be left out of the
+    /// comparison by accident: it will not compile until it is listed here.
+    pub fn same_reading(&self, other: &PostSnapshot) -> bool {
+        let PostSnapshot {
+            id: _,
+            post_id: _,
+            post: _,
+            captured_at: _,
+            impressions,
+            reactions,
+            comments,
+            reposts,
+            sends,
+            saves,
+            impressions_in_network,
+            impressions_out_of_network,
+            members_reached,
+            profile_viewers_from_post,
+            followers_from_post,
+        } = self;
+        *impressions == other.impressions
+            && *reactions == other.reactions
+            && *comments == other.comments
+            && *reposts == other.reposts
+            && *sends == other.sends
+            && *saves == other.saves
+            && *impressions_in_network == other.impressions_in_network
+            && *impressions_out_of_network == other.impressions_out_of_network
+            && *members_reached == other.members_reached
+            && *profile_viewers_from_post == other.profile_viewers_from_post
+            && *followers_from_post == other.followers_from_post
+    }
+}
+
 /// One comment on a post, with its author — so a member's own comments can be excluded from
 /// scoring, and so reciprocal-comment rings stay visible later.
 ///

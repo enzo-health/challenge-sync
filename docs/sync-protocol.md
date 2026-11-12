@@ -132,9 +132,21 @@ Errors: `401` bad/expired token.
 
 - The server records `capturedAt` from the client but also stamps its own `receivedAt` and uses the
   server clock for windowing decisions (clients can lie / be skewed).
-- Each sync writes one `ProfileSnapshot` and one `PostSnapshot` per post in `posts` (append-only,
-  time series). Posts left out for the refresh window get nothing new.
-- `Post` rows are upserted by `(user, urn)`; snapshots are always inserted.
+- Each sync writes one `ProfileSnapshot`, always, before it touches any post.
+- A post in `posts` gets a new `PostSnapshot` (append-only, time series) only when its reading
+  differs from the post's latest stored one in some metric. An unchanged reading writes nothing:
+  scoring takes the latest reading at or before a challenge's end, and the earlier identical row
+  gives the same numbers. The earlier row is never re-stamped with the new time, because moving it
+  past a challenge's end would leave the post with no reading inside that window. Posts left out
+  for the refresh window get nothing new either.
+- A metric missing from a reading (`null`, usually because the author-only analytics request
+  failed) takes the post's latest stored value before that comparison. A number once known for a
+  post never goes back to unknown; a metric never recorded for it stays `null`.
+- `postsIngested` counts the posts in the upload the server accepted, whether or not a new reading
+  was stored for them.
+- `post_snapshots` gets a new row only when a post's numbers change, so its newest `captured_at` is
+  not a "capture is still running" signal; `profile_snapshots`, written on every sync, is.
+- `Post` rows are upserted by `(user, urn)`.
 - Scores are computed from snapshots at read time — the ingest never computes score.
 
 

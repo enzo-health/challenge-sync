@@ -792,6 +792,79 @@ mod tests {
         assert_eq!(data.scored_comments(7, 1), 2);
     }
 
+    /// Sync skips a reading identical to the post's latest one, and
+    /// `scripts/dedupe-post-snapshots.sql` deletes rows identical to the one just before them.
+    /// Scoring and the post views read snapshots only through `latest_snapshot_before`,
+    /// `posted_at` and the last row, so both rules must leave every one of those answers alone
+    /// for every possible challenge end, including ends between two identical readings.
+    #[test]
+    fn skipping_repeated_readings_changes_no_answer_scoring_reads() {
+        let snap = |id: i64, captured_at: i64, reactions: Option<i64>, impressions: Option<i64>| PostSnapshot {
+            id, post_id: 7, post: Default::default(), captured_at, impressions, reactions,
+            comments: Some(2), reposts: None, sends: None, saves: None,
+            impressions_in_network: None, impressions_out_of_network: None, members_reached: None,
+            profile_viewers_from_post: None, followers_from_post: None,
+        };
+        // Every sync as it would be stored without the dedupe, in (captured_at, id) order: runs of
+        // repeats, a repeat in the same second, a NULL that later appears, and a value that goes
+        // back to an earlier one (not a repeat of the row just before it, so it is kept).
+        let readings = |base: i64| vec![
+            snap(1, base + 10, Some(5), None),
+            snap(2, base + 20, Some(5), None),
+            snap(3, base + 20, Some(5), None),
+            snap(4, base + 30, Some(5), Some(100)),
+            snap(5, base + 40, Some(9), Some(100)),
+            snap(6, base + 50, Some(9), Some(100)),
+            snap(7, base + 60, Some(9), Some(100)),
+            snap(8, base + 70, Some(5), Some(100)),
+            snap(9, base + 80, Some(5), Some(100)),
+        ];
+        // What sync stores: compare each reading with the latest one kept so far.
+        let ingested = |all: Vec<PostSnapshot>| {
+            let mut kept: Vec<PostSnapshot> = Vec::new();
+            for reading in all {
+                let unchanged = kept
+                    .last()
+                    .is_some_and(|last| reading.captured_at >= last.captured_at && last.same_reading(&reading));
+                if !unchanged {
+                    kept.push(reading);
+                }
+            }
+            kept
+        };
+        // What the cleanup script keeps: every row unlike the row immediately before it.
+        let cleaned = |all: Vec<PostSnapshot>| {
+            let keep: Vec<bool> = (0..all.len()).map(|i| i == 0 || !all[i - 1].same_reading(&all[i])).collect();
+            all.into_iter().zip(keep).filter_map(|(row, keep)| keep.then_some(row)).collect::<Vec<_>>()
+        };
+        let dataset = |rows: Vec<PostSnapshot>| {
+            let mut data = Dataset::default();
+            data.snapshots_by_post.insert(7, rows);
+            data
+        };
+        let post = |created_at: i64| Post {
+            id: 7, member_id: 1, member: Default::default(), urn: "urn:li:activity:7".into(),
+            permalink: String::new(), created_at, text_preview: None, image_urls_json: None,
+            is_repost: false, snapshots: Default::default(), comments_seen: Default::default(),
+        };
+        let base = 1_000;
+        let full = dataset(readings(base));
+        assert_eq!(ingested(readings(base)).len(), 4);
+        assert_eq!(cleaned(readings(base)).len(), 4);
+        for deduped in [dataset(ingested(readings(base))), dataset(cleaned(readings(base)))] {
+            for end in base..=base + 90 {
+                let (a, b) = (full.latest_snapshot_before(7, end), deduped.latest_snapshot_before(7, end));
+                assert_eq!(a.is_some(), b.is_some(), "end {end}");
+                if let (Some(a), Some(b)) = (a, b) {
+                    assert!(a.same_reading(b), "end {end}");
+                }
+            }
+            // A post with no creation time is dated by its first reading, which both rules keep.
+            assert_eq!(full.posted_at(&post(0)), deduped.posted_at(&post(0)));
+            assert!(full.snapshots(7).last().unwrap().same_reading(deduped.snapshots(7).last().unwrap()));
+        }
+    }
+
     #[test]
     fn weeks_in_window_include_the_partial_last_week() {
         // Jul 13 → Sep 30 is 79 days: eleven full weeks and a partial twelfth.

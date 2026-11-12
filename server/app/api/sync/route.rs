@@ -243,7 +243,31 @@ pub async fn post(
             .collect()
     };
 
-    // Upsert each post by URN, then append a metric snapshot.
+    // The latest stored reading of each already-known post in this batch, so an unchanged reading
+    // can be skipped. Toasty cannot ask for "latest per post" in SQL, so this loads those posts'
+    // readings in one query and keeps the newest of each; skipping repeats keeps that history short.
+    let known_post_ids: Vec<i64> = req
+        .posts
+        .iter()
+        .filter(|post| !foreign.contains(&post.urn))
+        .filter_map(|post| stored.get(&post.urn).map(|stored| stored.id))
+        .collect();
+    let mut latest: HashMap<i64, PostSnapshot> = HashMap::new();
+    if !known_post_ids.is_empty() {
+        for snapshot in PostSnapshot::filter(PostSnapshot::fields().post_id().in_list(known_post_ids))
+            .exec(&mut db)
+            .await?
+        {
+            let newer = latest
+                .get(&snapshot.post_id)
+                .is_none_or(|current| (snapshot.captured_at, snapshot.id) > (current.captured_at, current.id));
+            if newer {
+                latest.insert(snapshot.post_id, snapshot);
+            }
+        }
+    }
+
+    // Upsert each post by URN, then append a metric snapshot unless nothing changed.
     let mut ingested = 0usize;
     for p in &req.posts {
         if foreign.contains(&p.urn) {
@@ -293,8 +317,10 @@ pub async fn post(
             }
         };
 
-        toasty::create!(PostSnapshot {
+        let mut reading = PostSnapshot {
+            id: 0,
             post_id,
+            post: Default::default(),
             captured_at,
             impressions: p.metrics.impressions,
             reactions: p.metrics.reactions,
@@ -307,9 +333,42 @@ pub async fn post(
             members_reached: p.metrics.members_reached,
             profile_viewers_from_post: p.metrics.profile_viewers_from_post,
             followers_from_post: p.metrics.followers_from_post,
-        })
-        .exec(&mut db)
-        .await?;
+        };
+        // The author-only analytics request is best-effort; when it fails the reading arrives
+        // without those numbers. A number we have recorded for this post never goes back to
+        // unknown, so a missing one keeps the post's latest stored value.
+        if let Some(last) = latest.get(&post_id) {
+            reading.carry_forward_from(last);
+        }
+        // A reading identical to the latest one is not stored. Scoring takes the latest reading at
+        // or before a challenge's end, and the earlier identical row answers that with the same
+        // numbers, so no score moves. The earlier row is never re-stamped either: moving it past a
+        // challenge's end would leave the post with no reading inside that window. The time check
+        // only matters if the clock ever stepped back; then the reading is stored as before.
+        let unchanged = latest
+            .get(&post_id)
+            .is_some_and(|last| captured_at >= last.captured_at && last.same_reading(&reading));
+        if !unchanged {
+            let created = toasty::create!(PostSnapshot {
+                post_id,
+                captured_at,
+                impressions: reading.impressions,
+                reactions: reading.reactions,
+                comments: reading.comments,
+                reposts: reading.reposts,
+                sends: reading.sends,
+                saves: reading.saves,
+                impressions_in_network: reading.impressions_in_network,
+                impressions_out_of_network: reading.impressions_out_of_network,
+                members_reached: reading.members_reached,
+                profile_viewers_from_post: reading.profile_viewers_from_post,
+                followers_from_post: reading.followers_from_post,
+            })
+            .exec(&mut db)
+            .await?;
+            // A post named twice in one upload compares its second reading against its first.
+            latest.insert(post_id, created);
+        }
 
         // Comments are facts, not readings: upsert by URN so a re-sync doesn't duplicate them.
         // `is_self` is decided here, against the member who owns the post, so scoring never has to
