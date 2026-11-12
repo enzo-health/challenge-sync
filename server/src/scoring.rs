@@ -425,6 +425,11 @@ impl Dataset {
             self.snapshots(post.id).first().map(|s| s.captured_at)
         }
     }
+    /// The most recent value of one number across a post's readings, skipping readings that
+    /// missed it. Unlike `snapshots().last()`, one failed read does not blank the number.
+    pub fn latest_known(&self, post_id: i64, field: impl Fn(&PostSnapshot) -> Option<i64>) -> Option<i64> {
+        self.snapshots(post_id).iter().rev().find_map(field)
+    }
     pub fn latest_snapshot_before(&self, post_id: i64, before: i64) -> Option<&PostSnapshot> {
         self.snapshots(post_id).iter().rev().find(|s| s.captured_at <= before)
     }

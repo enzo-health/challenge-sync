@@ -1,5 +1,5 @@
-// Admin post reports: everyone's posts from a period, filtered by impressions, who posted, and a
-// CSV export. The same report is served to an admin's AI agent at /api/v1/posts with an API key,
+// Admin post reports: everyone's posts from a period, filtered by impressions and text, who
+// posted, and a CSV export. The same report is served to an admin's AI agent at /api/v1/posts with an API key,
 // and the keys are managed at the bottom of this page. Reachable only with the admin flag.
 import {
   getGetPostReportUrl,
@@ -12,19 +12,62 @@ import {
 import type { GetPostReportParams } from "@linkedin-challenge/client/react-query";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { fmtDate, fmtInt, initials } from "../../components/format";
+import { fmtInt, fmtLocalDate, initials } from "../../components/format";
 import { PostText } from "../../components/member-results";
 
-// The report's days are UTC calendar days, so the defaults are computed in UTC too: a local date
-// would be a day off for part of every day west or east of Greenwich.
-function utcDay(offsetDays: number): string {
-  return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+// The dates on this page are the viewer's own days. The browser knows its time zone and its
+// daylight saving rules, so it turns each day into exact instants and the server needs no time
+// zone database: a Thursday-evening post in Denver stays in Thursday's week.
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** A `Date`'s UTC offset as `-07:00`, at that moment (so a range across a clock change is right). */
+function offsetOf(date: Date): string {
+  const minutes = -date.getTimezoneOffset();
+  const abs = Math.abs(minutes);
+  return `${minutes < 0 ? "-" : "+"}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
-type Form = { since: string; until: string; minImpressions: string; minOutOfNetwork: string; contains: string };
+/** A local wall-clock time as ISO 8601 with its offset, e.g. `2026-11-12T23:59:59-07:00`. */
+function localIso(date: Date): string {
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offsetOf(date)}`
+  );
+}
+
+/** `YYYY-MM-DD` for today plus `offsetDays`, in the viewer's time zone. */
+function localDay(offsetDays: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The first or last second of a `YYYY-MM-DD` day in the viewer's time zone. */
+function dayEdge(day: string, end: boolean): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return end ? new Date(y!, m! - 1, d!, 23, 59, 59) : new Date(y!, m! - 1, d!, 0, 0, 0);
+}
+
+const ZONE_NAME = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+type Form = {
+  since: string;
+  until: string;
+  minImpressions: string;
+  minOutOfNetwork: string;
+  contains: string;
+  includeReposts: boolean;
+};
 
 function toParams(form: Form): GetPostReportParams {
-  const params: GetPostReportParams = { since: form.since, until: form.until };
+  const until = dayEdge(form.until, true);
+  const params: GetPostReportParams = {
+    since: localIso(dayEdge(form.since, false)),
+    until: localIso(until),
+    // So the CSV's posted_at_local column and the echoed period read in the viewer's time.
+    timezone: offsetOf(until),
+  };
+  if (form.includeReposts) params.includeReposts = true;
   // Empty boxes mean "no minimum"; sending them would be a 400 for a number that is not one.
   if (form.minImpressions.trim()) params.minImpressions = Number(form.minImpressions);
   if (form.minOutOfNetwork.trim()) params.minOutOfNetworkImpressions = Number(form.minOutOfNetwork);
@@ -36,11 +79,12 @@ const num = (n: number | null) => (n == null ? "—" : fmtInt(n));
 
 export default function Reports() {
   const [form, setForm] = useState<Form>({
-    since: utcDay(-6),
-    until: utcDay(0),
+    since: localDay(-6),
+    until: localDay(0),
     minImpressions: "",
     minOutOfNetwork: "",
     contains: "",
+    includeReposts: false,
   });
   const [params, setParams] = useState<GetPostReportParams>(() => toParams(form));
   // Keep the last result on screen while a new one loads, instead of blanking the page.
@@ -52,7 +96,7 @@ export default function Reports() {
     event.preventDefault();
     setParams(toParams(form));
   };
-  const field = (key: keyof Form) => ({
+  const field = (key: "since" | "until" | "minImpressions" | "minOutOfNetwork" | "contains") => ({
     value: form[key],
     onChange: (event: { target: { value: string } }) => setForm({ ...form, [key]: event.target.value }),
   });
@@ -75,9 +119,10 @@ export default function Reports() {
     <>
       <h1>Post reports</h1>
       <p className="lede">
-        Everyone&rsquo;s posts from a period, with their latest numbers. Dates are UTC days and both
-        ends are included. &ldquo;Post mentions&rdquo; ignores case. Leave the filters empty to see
-        everyone who posted.
+        Everyone&rsquo;s original posts from a period, with their latest numbers. Both dates are
+        included, from midnight to midnight in your time zone ({ZONE_NAME}). Minimums are
+        &ldquo;at least&rdquo;: for strictly over 3,000, enter 3001. &ldquo;Post mentions&rdquo;
+        ignores case. Leave the filters empty to see everyone who posted.
       </p>
 
       <form className="panel" onSubmit={run}>
@@ -103,6 +148,15 @@ export default function Reports() {
             <input type="search" placeholder="e.g. Enzo" {...field("contains")} />
           </label>
         </div>
+        <label className="small" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <input
+            type="checkbox"
+            style={{ width: "auto" }}
+            checked={form.includeReposts}
+            onChange={(event) => setForm({ ...form, includeReposts: event.target.checked })}
+          />
+          Include reshares (only original posts count by default)
+        </label>
         <p style={{ margin: 0 }}>
           <button type="submit" disabled={isFetching}>
             {isFetching ? "Loading…" : "Show posts"}
@@ -131,7 +185,8 @@ export default function Reports() {
             <div className="stat">
               <div className="k">Period</div>
               <div className="v" style={{ fontSize: 16 }}>
-                {fmtDate(Date.parse(report.filters.since) / 1000)} – {fmtDate(Date.parse(report.filters.until) / 1000)}
+                {fmtLocalDate(Date.parse(report.filters.since) / 1000)} –{" "}
+                {fmtLocalDate(Date.parse(report.filters.until) / 1000)}
               </div>
             </div>
           </div>
@@ -171,7 +226,7 @@ export default function Reports() {
                           View on LinkedIn
                         </a>
                       </td>
-                      <td className="small muted">{fmtDate(post.postedAtUnix)}</td>
+                      <td className="small muted">{fmtLocalDate(post.postedAtUnix)}</td>
                       <td className="num">{num(post.impressions)}</td>
                       <td className="num">{num(post.impressionsOutOfNetwork)}</td>
                       <td className="num">{num(post.reactions)}</td>
@@ -320,10 +375,10 @@ function ApiKeys() {
                 <tr key={key.id}>
                   <td>{key.name}</td>
                   <td className="small muted">
-                    {fmtDate(key.createdAt)}
+                    {fmtLocalDate(key.createdAt)}
                     {key.createdByName ? ` by ${key.createdByName}` : ""}
                   </td>
-                  <td className="small muted">{key.lastUsedAt ? fmtDate(key.lastUsedAt) : "never"}</td>
+                  <td className="small muted">{key.lastUsedAt ? fmtLocalDate(key.lastUsedAt) : "never"}</td>
                   <td className="num">
                     <button
                       className="btn ghost sm"
@@ -346,7 +401,10 @@ function ApiKeys() {
 
         <h3>Example</h3>
         <p className="muted small">
-          Posts in the past week that mention Enzo with at least 3,000 out-of-network impressions:
+          Posts in the past week that mention Enzo with at least 3,000 out-of-network impressions
+          (&ldquo;at least&rdquo; means 3,000 counts; use 3001 for strictly over). Add{" "}
+          <code>&amp;timezone=-07:00</code> to read the dates in Mountain standard time (-06:00 in
+          summer):
         </p>
         <pre className="code" style={{ display: "block", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
           {`curl -H "Authorization: Bearer $CHALLENGE_API_KEY" \\\n  "${origin}/api/v1/posts?contains=enzo&minOutOfNetworkImpressions=3000"`}
@@ -358,6 +416,10 @@ function ApiKeys() {
         <pre className="code" style={{ display: "block", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
           {`curl -H "Authorization: Bearer $CHALLENGE_API_KEY" \\\n  "${origin}/api/v1/posts"`}
         </pre>
+        <p className="muted small">
+          Who has the extension installed and when each person last synced:{" "}
+          <code>{`${origin}/api/v1/members`}</code> (same key).
+        </p>
       </div>
     </>
   );

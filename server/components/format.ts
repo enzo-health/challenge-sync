@@ -51,6 +51,17 @@ export function fmtDate(unix: number): string {
   });
 }
 
+/** Unix seconds → `Mar 4, 2026` in the viewer's own time zone, for moments (when a post went
+ * up) rather than the UTC-midnight windows `fmtDate` is for. */
+export function fmtLocalDate(unix: number): string {
+  if (!unix) return "—";
+  return new Date(unix * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 /** Initials for the avatar placeholder, until profile pictures are stored. */
 export function initials(name: string): string {
   return name

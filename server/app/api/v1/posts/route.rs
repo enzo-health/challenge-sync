@@ -10,8 +10,10 @@ use axum::extract::rejection::QueryRejection;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::auth::{api_key_from_bearer, current_system_admin, has_bearer};
-use linkedin_challenge_server::reports::{PostReport, ReportFilter, csv_filename, post_report, report_csv};
+use linkedin_challenge_server::reports::{
+    PostReport, ReportFilter, ReportParams, csv_filename, post_report, report_csv,
+    require_report_access,
+};
 use linkedin_challenge_server::util::now_unix;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
@@ -22,12 +24,20 @@ use utoipa::IntoParams;
 #[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct PostReportQuery {
-    /// First day included, `YYYY-MM-DD` (UTC). Default: six days before `until`.
+    /// Start of the period, included: a day (`YYYY-MM-DD`, from its first second in `timezone`)
+    /// or an exact time with an offset (`2026-11-06T00:00:00-07:00`). Default: the start of the
+    /// day six days before `until`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
-    /// Last day included, `YYYY-MM-DD` (UTC). Default: today.
+    /// End of the period, included: a day (to its last second in `timezone`) or an exact time
+    /// with an offset. Default: the end of today in `timezone`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub until: Option<String>,
+    /// Fixed UTC offset that dates are read in and local times are shown in: `-07:00`,
+    /// `+00:00` or `Z`. Default UTC. Not a zone name: Mountain time is -07:00 in winter and
+    /// -06:00 in summer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
     /// Only posts with at least this many impressions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_impressions: Option<i64>,
@@ -39,6 +49,9 @@ pub struct PostReportQuery {
     /// "enzo.health"). Posts with no stored text never match.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contains: Option<String>,
+    /// Include reshares (flagged `isRepost`). Default false: original posts only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_reposts: Option<bool>,
     /// Only this member's posts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_id: Option<i64>,
@@ -61,17 +74,7 @@ pub async fn get(
     headers: HeaderMap,
     query: Result<Query<PostReportQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
-    // A request that presents a key is judged by the key alone, so a wrong key fails even from a
-    // browser that also holds a session. Without one, only an admin's website session will do.
-    if has_bearer(&headers) {
-        if api_key_from_bearer(&mut db, &headers).await.is_none() {
-            return Err(ApiError::unauthorized("invalid or revoked API key"));
-        }
-    } else if current_system_admin(&mut db, &headers).await.is_none() {
-        return Err(ApiError::unauthorized(
-            "send an API key as `Authorization: Bearer csk_...`",
-        ));
-    }
+    require_report_access(&mut db, &headers).await?;
 
     // Axum's own rejection is plain text; an agent is better served by the JSON error shape.
     let Query(q) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
@@ -81,12 +84,16 @@ pub async fn get(
         _ => return Err(ApiError::bad_request("format must be json or csv")),
     };
     let filter = ReportFilter::new(
-        q.since.as_deref(),
-        q.until.as_deref(),
-        q.min_impressions,
-        q.min_out_of_network_impressions,
-        q.member_id,
-        q.contains.as_deref(),
+        ReportParams {
+            since: q.since.as_deref(),
+            until: q.until.as_deref(),
+            timezone: q.timezone.as_deref(),
+            min_impressions: q.min_impressions,
+            min_out_of_network_impressions: q.min_out_of_network_impressions,
+            member_id: q.member_id,
+            contains: q.contains.as_deref(),
+            include_reposts: q.include_reposts.unwrap_or(false),
+        },
         now_unix(),
     )
     .map_err(ApiError::bad_request)?;

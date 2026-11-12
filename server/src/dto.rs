@@ -1089,6 +1089,34 @@ pub struct SystemOverview {
     pub join_code: Option<String>,
 }
 
+/// Per member: when they last synced, and their newest known follower count.
+pub struct ProfileReadings {
+    /// Newest `ProfileSnapshot.captured_at`. The sync endpoint writes a profile snapshot on every
+    /// successful sync, changed posts or not, so this is "last synced".
+    pub last_synced: std::collections::HashMap<i64, i64>,
+    pub followers: std::collections::HashMap<i64, i64>,
+}
+
+/// One whole-table read of `profile_snapshots`, shared by the system panel and the reporting API.
+pub async fn profile_readings(db: &mut Db) -> ApiResult<ProfileReadings> {
+    let mut last_synced: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut followers = std::collections::HashMap::new();
+    for snapshot in crate::models::ProfileSnapshot::all().exec(&mut *db).await? {
+        if let Some(count) = snapshot.follower_count {
+            let entry = followers.entry(snapshot.member_id).or_insert(((snapshot.captured_at, snapshot.id), count));
+            if (snapshot.captured_at, snapshot.id) > entry.0 {
+                *entry = ((snapshot.captured_at, snapshot.id), count);
+            }
+        }
+        let entry = last_synced.entry(snapshot.member_id).or_insert(snapshot.captured_at);
+        *entry = (*entry).max(snapshot.captured_at);
+    }
+    Ok(ProfileReadings {
+        last_synced,
+        followers: followers.into_iter().map(|(id, (_, count))| (id, count)).collect(),
+    })
+}
+
 /// Every account, for the hand-operated product support panel.
 pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
     // Three whole-table reads rather than two queries per account: this panel lists everyone,
@@ -1102,22 +1130,11 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
         .filter(|membership| membership.role == "owner")
         .map(|membership| membership.member_id)
         .collect();
-    let mut last_synced: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
-    let mut followers = std::collections::HashMap::new();
-    for snapshot in crate::models::ProfileSnapshot::all().exec(&mut *db).await? {
-        if let Some(count) = snapshot.follower_count {
-            let entry = followers.entry(snapshot.member_id).or_insert(((snapshot.captured_at, snapshot.id), count));
-            if (snapshot.captured_at, snapshot.id) > entry.0 {
-                *entry = ((snapshot.captured_at, snapshot.id), count);
-            }
-        }
-        let entry = last_synced.entry(snapshot.member_id).or_insert(snapshot.captured_at);
-        *entry = (*entry).max(snapshot.captured_at);
-    }
+    let ProfileReadings { last_synced, followers } = profile_readings(db).await?;
     let members = users
         .into_iter()
         .map(|user| SystemMemberRow {
-            follower_count: followers.get(&user.id).map(|(_, count)| *count),
+            follower_count: followers.get(&user.id).copied(),
             id: user.id,
             owns_challenge: owners.contains(&user.id),
             last_synced_at: last_synced.get(&user.id).copied(),

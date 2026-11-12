@@ -5,10 +5,13 @@
 * an admin can create an API key, it works on /api/v1/posts, and a revoked key stops working;
 * a key stops working when the admin who created it is no longer an admin;
 * a sync token is refused as an API key, and an API key is refused by /api/sync;
-* the date window (UTC days, both ends included), minImpressions, minOutOfNetworkImpressions and
-  contains return exactly the expected posts, an unknown out-of-network number never matches, a
-  post with no text never matches contains, numbers come from the latest snapshot, and the
-  per-person summary counts are right;
+* the date window (days in a fixed offset, UTC by default, or exact timestamps; both ends
+  included), minImpressions, minOutOfNetworkImpressions and contains return exactly the expected
+  posts; reshares are left out unless includeReposts=true; an unknown out-of-network number never
+  matches; a post with no text never matches contains; each number is the newest value read (an
+  older reading fills in when the newest one missed it); and the per-person summary is right;
+* /api/v1/members lists every account with when it last synced (advancing on every sync, even with
+  nothing new), whether a LinkedIn identity is bound, and a sync summary, with no emails;
 * posts carry their full text, and the CSV export has the header, one row per post, and survives a
   comma, a quote and a newline in post text.
 """
@@ -137,6 +140,20 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
         sync(sam_token, [post('urn:li:activity:s2', '2025-03-07T08:00:00Z', 4000, 2999,
                               text='Thoughts on the industry at enzo.health')])
 
+        # Jason's draw week: Friday 2025-03-28 through Thursday 2025-04-03, Mountain daylight time
+        # (-06:00). r7 went up Thursday 21:30 there, already Friday in UTC; r8 went up Thursday
+        # 23:00 the week before there, already Friday in UTC.
+        sync(rita_token, [
+            post('urn:li:activity:r7', '2025-04-04T03:30:00Z', 1000, 100),
+            post('urn:li:activity:r8', '2025-03-28T05:00:00Z', 1000, 100),
+        ])
+        # s9 passed 3,000 out of network, then a later read missed the analytics: the report must
+        # keep 3,200 rather than drop the post.
+        sync(sam_token, [post('urn:li:activity:s9', '2025-04-01T12:00:00Z', 5000, 3200)])
+        first_read = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        time.sleep(1.1)
+        sync(sam_token, [post('urn:li:activity:s9', '2025-04-01T12:00:00Z', 5600, None)])
+
         week = {'since': '2025-03-03', 'until': '2025-03-09'}
         urns = lambda result: [p['postUrl'].rsplit(':', 1)[1].rstrip('/') for p in result['posts']]
 
@@ -170,11 +187,11 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               and listed[0]['lastUsedAt'] is None and listed[0]['createdByName'])
 
         by_key = report(anon, token=key, **week)
-        check('the key works on /api/v1/posts', by_key['postCount'] == 6)
+        check('the key works on /api/v1/posts', by_key['postCount'] == 5)
         check('using the key records when it was last used',
               admin.request('/api/system/api-keys')['keys'][0]['lastUsedAt'] is not None)
         check('an admin website session also works, for the reports page',
-              report(admin, **week)['postCount'] == 6)
+              report(admin, **week)['postCount'] == 5)
 
         report(anon, token=rita_token, status=401)
         check('a sync token is refused as an API key', True)
@@ -183,13 +200,14 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
         check('an API key is refused by the sync endpoints', True)
 
         # --- the report itself -------------------------------------------------------------
-        check('the window includes both end days and nothing outside them (UTC)',
-              sorted(urns(by_key)) == ['r1', 'r2', 'r5', 's1', 's2', 's3'])
+        check('the window includes both end days and nothing outside them (UTC); reshares left out',
+              sorted(urns(by_key)) == ['r1', 'r2', 'r5', 's1', 's2']
+              and by_key['filters']['includeReposts'] is False)
         everyone = {a['memberId']: a for a in by_key['authors']}
-        check('with no minimum, the summary is who posted and how often',
+        check('with no minimum, the summary is who posted original posts and how often',
               set(everyone) == {rita_id, sam_id}
               and everyone[rita_id]['postsInPeriod'] == 3 and everyone[rita_id]['matchingPosts'] == 3
-              and everyone[sam_id]['postsInPeriod'] == 3 and everyone[sam_id]['matchingPosts'] == 3)
+              and everyone[sam_id]['postsInPeriod'] == 2 and everyone[sam_id]['matchingPosts'] == 2)
         s2 = next(p for p in by_key['posts'] if p['postUrl'].endswith('s2/'))
         check('numbers come from the latest snapshot',
               s2['impressions'] == 4000 and s2['impressionsOutOfNetwork'] == 2999)
@@ -201,23 +219,29 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               and r1['authorPublicIdentifier'] == 'rita-report'
               and r1['postedAt'] == '2025-03-03T00:00:00Z' and r1['text'] == tricky
               and r1['reactions'] == 7 and r1['comments'] == 2)
-        check('reposts are listed and flagged',
-              next(p for p in by_key['posts'] if p['postUrl'].endswith('s3/'))['isRepost'] is True)
+        with_reshares = report(anon, token=key, includeReposts='true', **week)
+        s3 = next(p for p in with_reshares['posts'] if p['postUrl'].endswith('s3/'))
+        sam = next(a for a in with_reshares['authors'] if a['memberId'] == sam_id)
+        check('includeReposts=true brings reshares back, flagged, and counts them',
+              s3['isRepost'] is True and with_reshares['postCount'] == 6 and sam['postsInPeriod'] == 3
+              and with_reshares['filters']['includeReposts'] is True)
+        result = report(anon, token=key, includeReposts='true', minOutOfNetworkImpressions=3000, **week)
+        check('with reshares, a reshare can match the filters too', urns(result) == ['r1', 's3', 'r2'])
 
         result = report(anon, token=key, minImpressions=3000, **week)
         check('minImpressions keeps posts at or above it, highest impressions first',
-              urns(result) == ['r5', 'r1', 's2', 's3'] and result['sortedBy'] == 'impressions')
+              urns(result) == ['r5', 'r1', 's2'] and result['sortedBy'] == 'impressions')
 
         result = report(anon, token=key, minOutOfNetworkImpressions=3000, **week)
         check('minOutOfNetworkImpressions keeps posts at or above it, highest first; unknown never matches',
-              urns(result) == ['r1', 's3', 'r2'] and result['sortedBy'] == 'impressionsOutOfNetwork')
+              urns(result) == ['r1', 'r2'] and result['sortedBy'] == 'impressionsOutOfNetwork')
         summary = {a['memberId']: (a['postsInPeriod'], a['matchingPosts']) for a in result['authors']}
-        check('the summary counts every post in the period and the ones that matched',
-              summary == {rita_id: (3, 2), sam_id: (3, 1)}
+        check('the summary counts every original post in the period and the ones that matched',
+              summary == {rita_id: (3, 2), sam_id: (2, 0)}
               and [a['memberId'] for a in result['authors']] == [rita_id, sam_id])
 
         result = report(anon, token=key, minImpressions=3000, minOutOfNetworkImpressions=3000, **week)
-        check('both minimums together must both hold', urns(result) == ['r1', 's3'])
+        check('both minimums together must both hold', urns(result) == ['r1'])
 
         result = report(anon, token=key, contains='enzo', **week)
         check('contains finds the word in any case and inside enzo.health, highest impressions first',
@@ -230,21 +254,54 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
         result = report(anon, token=key, contains='enzo', minOutOfNetworkImpressions=3000, **week)
         summary = {a['memberId']: (a['postsInPeriod'], a['matchingPosts']) for a in result['authors']}
         check('contains combines with the impression filters',
-              urns(result) == ['r1', 'r2'] and summary == {rita_id: (3, 2), sam_id: (3, 0)}
+              urns(result) == ['r1', 'r2'] and summary == {rita_id: (3, 2), sam_id: (2, 0)}
               and result['filters']['contains'] == 'enzo')
 
         result = report(anon, token=key, memberId=sam_id, **week)
         check('memberId narrows the report to one person',
-              sorted(urns(result)) == ['s1', 's2', 's3'] and [a['memberId'] for a in result['authors']] == [sam_id])
+              sorted(urns(result)) == ['s1', 's2'] and [a['memberId'] for a in result['authors']] == [sam_id])
 
         result = report(anon, token=key, since='2025-03-09', until='2025-03-09')
         check('a one-day window covers that whole UTC day', urns(result) == ['r2'])
 
+        # --- time zones and exact instants ------------------------------------------------
+        draw = {'since': '2025-03-28', 'until': '2025-04-03'}
+        result = report(anon, token=key, timezone='-06:00', **draw)
+        check('dates are read in the given offset: a Thursday-evening Mountain post stays in its week',
+              sorted(urns(result)) == ['r7', 's9'])
+        check('the resolved period is echoed as exact instants with the offset',
+              result['filters']['since'] == '2025-03-28T00:00:00-06:00'
+              and result['filters']['until'] == '2025-04-03T23:59:59-06:00'
+              and result['filters']['timezone'] == '-06:00' and result['timezone'] == '-06:00')
+        r7 = next(p for p in result['posts'] if p['postUrl'].endswith('r7/'))
+        check('each post also carries its time in the requested offset',
+              r7['postedAt'] == '2025-04-04T03:30:00Z' and r7['postedAtLocal'] == '2025-04-03T21:30:00-06:00')
+        check('the same dates in UTC (the default) cover a different week',
+              sorted(urns(report(anon, token=key, **draw))) == ['r8', 's9'])
+        exact = report(anon, token=key, since='2025-03-28T00:00:00-06:00', until='2025-04-03T23:59:59-06:00')
+        check('exact timestamps give the same week as dates with an offset',
+              sorted(urns(exact)) == ['r7', 's9'] and exact['filters']['since'] == '2025-03-28T06:00:00+00:00')
+        check('a timestamp until is inclusive to the second',
+              'r7' in urns(report(anon, token=key, since='2025-04-01', until='2025-04-04T03:30:00Z'))
+              and 'r7' not in urns(report(anon, token=key, since='2025-04-01', until='2025-04-04T03:29:59Z')))
+        # An agent that forgets to encode `+` in a URL sends a space; it still means +.
+        raw = anon.request('/api/v1/posts?since=2025-04-04T04:30:00+01:00&until=2025-04-04&timezone=+01:00', token=key)
+        check('an unencoded + in a timestamp or offset still works',
+              urns(raw) == ['r7'] and raw['filters']['timezone'] == '+01:00')
+
+        # --- last known numbers -------------------------------------------------------------
+        result = report(anon, token=key, timezone='-06:00', minOutOfNetworkImpressions=3000, **draw)
+        s9 = result['posts'][0] if result['posts'] else {}
+        check('a number the newest reading missed falls back to the last one read, and still matches',
+              urns(result) == ['s9'] and s9['impressionsOutOfNetwork'] == 3200 and s9['impressions'] == 5600)
+        check('metricsCapturedAt is the newest reading, not the one the number came from',
+              s9['metricsCapturedAt'] is not None and s9['metricsCapturedAt'] > first_read)
+
         result = report(anon, token=key)
         today = dt.datetime.now(dt.timezone.utc).date()
         check('with no dates the window is today and the six days before (UTC)',
-              result['filters']['until'] == today.isoformat()
-              and result['filters']['since'] == (today - dt.timedelta(days=6)).isoformat())
+              result['filters']['until'] == today.isoformat() + 'T23:59:59+00:00'
+              and result['filters']['since'] == (today - dt.timedelta(days=6)).isoformat() + 'T00:00:00+00:00')
         # The demo seed dates posts relative to startup: Dev, Ben and Erin posted 4–6 days ago,
         # Ada 8 days ago. r6 had no creation time, so it counts from its first snapshot (today).
         names = sorted(a['displayName'] for a in result['authors'])
@@ -253,7 +310,9 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               and 'r6' in urns(result))
 
         for params in ({'since': '2025-02-30'}, {'since': '2025-03-09', 'until': '2025-03-01'},
-                       {'minImpressions': 'lots'}, {'minImpressions': '-5'}, {'format': 'xml'}):
+                       {'minImpressions': 'lots'}, {'minImpressions': '-5'}, {'format': 'xml'},
+                       {'timezone': 'America/Denver'}, {'timezone': '-7'}, {'since': '2025-03-28T00:00:00'},
+                       {'includeReposts': 'maybe'}):
             assert 'error' in report(anon, token=key, status=400, **params), params
         check('invalid parameters get a JSON 400', True)
 
@@ -265,25 +324,33 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               response.code == 200 and response.headers.get_content_type() == 'text/csv'
               and 'filename="posts-2025-03-03-to-2025-03-09.csv"' in response.headers['Content-Disposition'])
         check('the CSV starts with a byte order mark for Excel, then a plain header row',
-              text.startswith('﻿posted_date,posted_at_utc,author_name,author_member_id,'))
-        rows = list(csv.reader(io.StringIO(text.lstrip('﻿'), newline='')))
+              text.startswith('\ufeffposted_date,posted_at_utc,posted_at_local,author_name,author_member_id,'))
+        rows = list(csv.reader(io.StringIO(text.lstrip('\ufeff'), newline='')))
         header, rows = rows[0], rows[1:]
-        check('the CSV has one row per post', len(rows) == 6 and len(set(map(len, rows))) == 1
+        check('the CSV has one row per post', len(rows) == 5 and len(set(map(len, rows))) == 1
               and len(header) == len(rows[0]))
         by_url = {row[header.index('post_url')]: dict(zip(header, row)) for row in rows}
         r1_row = by_url['https://www.linkedin.com/feed/update/urn:li:activity:r1/']
         check('post text with a comma, a quote and a newline survives the CSV',
               r1_row['text'] == tricky and r1_row['posted_date'] == '2025-03-03'
-              and r1_row['posted_at_utc'] == '2025-03-03T00:00:00Z' and r1_row['impressions'] == '5000')
+              and r1_row['posted_at_utc'] == '2025-03-03T00:00:00Z'
+              and r1_row['posted_at_local'] == '2025-03-03T00:00:00+00:00' and r1_row['impressions'] == '5000')
         check('an unknown number is an empty cell',
               by_url['https://www.linkedin.com/feed/update/urn:li:activity:r5/']['impressions_out_of_network'] == '')
         check('post text cannot run as a spreadsheet formula',
               by_url['https://www.linkedin.com/feed/update/urn:li:activity:s1/']['text'] == "'=1+1 is not a formula")
         response = anon.raw('/api/v1/posts?' + urllib.parse.urlencode(
             {**week, 'format': 'csv', 'minOutOfNetworkImpressions': 3000}), token=key)
-        rows = list(csv.reader(io.StringIO(response.body.decode('utf-8').lstrip('﻿'), newline='')))[1:]
+        rows = list(csv.reader(io.StringIO(response.body.decode('utf-8').lstrip('\ufeff'), newline='')))[1:]
         check('the CSV holds exactly the filtered rows, in the same order',
-              [row[header.index('post_url')].rsplit(':', 1)[1].rstrip('/') for row in rows] == ['r1', 's3', 'r2'])
+              [row[header.index('post_url')].rsplit(':', 1)[1].rstrip('/') for row in rows] == ['r1', 'r2'])
+        response = anon.raw('/api/v1/posts?' + urllib.parse.urlencode({**draw, 'format': 'csv', 'timezone': '-06:00'}), token=key)
+        rows = list(csv.DictReader(io.StringIO(response.body.decode('utf-8').lstrip('\ufeff'), newline='')))
+        r7_row = next(row for row in rows if row['post_url'].endswith('r7/'))
+        check('the CSV follows the offset: local time column, local day, and the file name',
+              r7_row['posted_at_local'] == '2025-04-03T21:30:00-06:00' and r7_row['posted_date'] == '2025-04-03'
+              and r7_row['posted_at_utc'] == '2025-04-04T03:30:00Z'
+              and 'filename="posts-2025-03-28-to-2025-04-03.csv"' in response.headers['Content-Disposition'])
         response = anon.raw('/api/v1/posts?' + urllib.parse.urlencode(
             {**week, 'format': 'csv', 'contains': 'Enzo', 'minOutOfNetworkImpressions': 3000}), token=key)
         rows = list(csv.reader(io.StringIO(response.body.decode('utf-8').lstrip('\ufeff'), newline='')))[1:]
@@ -291,6 +358,56 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               [row[header.index('post_url')].rsplit(':', 1)[1].rstrip('/') for row in rows] == ['r1', 'r2'])
         check('an admin session can download the CSV too (the Export button)',
               admin.raw('/api/v1/posts?format=csv').code == 200)
+
+        # --- members and sync health -------------------------------------------------------
+        for name, response in [('anonymous', anon.raw('/api/v1/members')),
+                               ('a non-admin session', member.raw('/api/v1/members')),
+                               ('a sync token', anon.raw('/api/v1/members', token=rita_token))]:
+            assert response.code == 401 and 'error' in response.json(), (name, response.code, response.body)
+        check('/api/v1/members refuses callers without a key or an admin session', True)
+
+        gina_id, _ = join('urn:li:fsd_profile:GINA1', 'Gina', 'Newhire')
+        raw = anon.raw('/api/v1/members', token=key)
+        members = raw.json()
+        by_id = {m['memberId']: m for m in members['members']}
+        check('a member who has synced shows when', by_id[rita_id]['lastSyncedAt'] is not None
+              and by_id[rita_id]['linked'] is True and isinstance(by_id[rita_id]['lastSyncedAtUnix'], int))
+        check('a member who joined but never synced is linked with no sync time',
+              by_id[gina_id]['linked'] is True and by_id[gina_id]['lastSyncedAt'] is None
+              and by_id[gina_id]['postCount'] == 0 and by_id[gina_id]['newestPostAt'] is None)
+        sysadmin = next(m for m in members['members'] if m['displayName'] == admin.request('/api/auth/me')['displayName'])
+        check('an account with a placeholder LinkedIn identity is not linked', sysadmin['linked'] is False)
+        check('post counts are original posts only, with the newest post time',
+              by_id[sam_id]['postCount'] == 3 and by_id[sam_id]['newestPostAt'] == '2025-04-01T12:00:00Z'
+              and by_id[rita_id]['profileUrl'] == 'https://www.linkedin.com/in/rita-report'
+              and by_id[rita_id]['publicIdentifier'] == 'rita-report')
+        now_unix = time.time()
+        synced = [m['lastSyncedAtUnix'] for m in members['members'] if m['lastSyncedAtUnix'] is not None]
+        summary = members['sync']
+        check('the sync summary counts are right',
+              summary['totalMembers'] == len(members['members'])
+              and summary['membersSyncedLast24h'] == len([t for t in synced if t >= now_unix - 86400 - 5]) == 7
+              and summary['membersSyncedLast7d'] == 7
+              and summary['linkedMembersNeverSynced'] == 1
+              and summary['newestSyncAt'] == max(m['lastSyncedAt'] for m in members['members'] if m['lastSyncedAt']))
+        check('no email appears anywhere in the members response',
+              '@' not in raw.body.decode() and 'email' not in raw.body.decode().lower())
+
+        before = by_id[rita_id]['lastSyncedAtUnix']
+        time.sleep(1.1)
+        sync(rita_token, [post('urn:li:activity:r7', '2025-04-04T03:30:00Z', 1000, 100)])
+        after = {m['memberId']: m for m in anon.request('/api/v1/members', token=key)['members']}[rita_id]
+        check('a sync with nothing new still advances lastSyncedAt', after['lastSyncedAtUnix'] > before)
+
+        response = anon.raw('/api/v1/members?format=csv', token=key)
+        text = response.body.decode('utf-8')
+        rows = list(csv.DictReader(io.StringIO(text.lstrip('\ufeff'), newline='')))
+        check('the members list downloads as CSV with the same conventions',
+              response.headers.get_content_type() == 'text/csv' and text.startswith('\ufeffmember_id,display_name,')
+              and 'filename="members-' in response.headers['Content-Disposition']
+              and len(rows) == len(members['members']) and '@' not in text
+              and next(r for r in rows if r['member_id'] == str(gina_id))['last_synced_at_utc'] == '')
+        check('an admin session can read the members list too', admin.raw('/api/v1/members').code == 200)
 
         # --- revoking ----------------------------------------------------------------------
         key_id = created['id']

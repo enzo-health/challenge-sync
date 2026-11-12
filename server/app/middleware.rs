@@ -22,9 +22,10 @@ fn is_public(path: &str) -> bool {
         || path == "/api/link"
         || path == "/api/sync"
         || path == "/api/me/sync-status"
-        // The reporting API: an admin's agent calls it with an API key, not a cookie. The handler
-        // checks the key (or an admin session) itself.
+        // The reporting API: an admin's agent calls it with an API key, not a cookie. The handlers
+        // check the key (or an admin session) themselves.
         || path == "/api/v1/posts"
+        || path == "/api/v1/members"
         // Bundles, stylesheet, favicons. Blocking these would break the login page itself.
         || path.starts_with("/dist/")
         || path.starts_with("/favicon.")
