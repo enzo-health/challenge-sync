@@ -15,6 +15,7 @@ import { useState, type FormEvent } from "react";
 import { fmtInt, fmtLocalDate, initials } from "../../components/format";
 import { PostText } from "../../components/member-results";
 import { ConfirmModal } from "../../components/confirm-modal";
+import { errorText } from "../../components/host-block";
 
 // The dates on this page are the viewer's own days. The browser knows its time zone and its
 // daylight saving rules, so it turns each day into exact instants and the server needs no time
@@ -308,7 +309,7 @@ function ApiKeys() {
           setName("");
           refresh();
         },
-        onError: () => setError("The key could not be created. Try again."),
+        onError: (error) => setError(errorText(error, "The key could not be created. Try again.")),
       },
     );
   };
@@ -445,7 +446,7 @@ function ApiKeys() {
                 setRevoking(null);
                 refresh();
               },
-              onError: () => setRevokeError("The key could not be revoked. Try again."),
+              onError: (error) => setRevokeError(errorText(error, "The key could not be revoked. Try again.")),
             },
           );
         }}

@@ -9,6 +9,11 @@ import { useLocation } from "@tanstack/react-router";
 import { useGetChallenges, useGetMe, useLogout, useStopImpersonation } from "@linkedin-challenge/client/react-query";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { SyncPausedBanner } from "../components/sync-paused";
+import { HostBlockedBanner, installHostBlockDetection, useHostBlockRetryPolicy } from "../components/host-block";
+
+// Before any query or mutation runs: a request our host's firewall stopped becomes one
+// recognisable error app-wide (see components/host-block.tsx).
+installHostBlockDetection();
 
 function NavLink({ href, pathname }: { href: string; pathname: string }) {
   // Prefix-match nested routes; exact-match the landing page and the owner overview so they don't
@@ -183,6 +188,7 @@ function Sidebar() {
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
+  useHostBlockRetryPolicy();
   return (
     <>
       <title>Challenge Sync</title>
@@ -195,6 +201,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="shell">
           <Sidebar />
           <main>
+            <HostBlockedBanner />
             <SyncPausedBanner />
             {children}
           </main>

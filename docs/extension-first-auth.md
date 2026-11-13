@@ -19,6 +19,43 @@ original proposal, kept for the reasoning.
   sync token into a session, and the extension writes the cookie into the browser itself.
 - **Page to extension.** `extension/bridge.js` is a content script on the site that relays the
   get-started page's status question to the service worker. Only status flags cross the page.
+- **How often the page asks** (`server/components/poll-schedule.ts`). The get-started page sends
+  the extension a hello at once, then after 3, 3, 3, 5, 5, 10 and 10 seconds, then every 30
+  seconds. It asks the site (`/api/auth/me`) when it opens, right after the extension replies
+  "linked" (it has just written the session cookie), and otherwise once a minute. A hidden tab
+  asks nothing; coming back to it, or the extension reporting something new, asks at once and
+  starts the schedule over. Until 2026-11-13 it asked both every 3 seconds forever, hidden or not,
+  which got the owner's network challenged by Vercel's DDoS mitigation (see "Host blocks" below).
+  Idle, that is 8 hellos and 2 to 3 `/api/auth/me` in the first minute, then 2 and 1 a minute,
+  instead of 20 and 20.
+- **What the page says when sign-in has not happened**, one of exactly three things, so a
+  screenshot tells them apart: no invite link in this browser ("You need your company's invite
+  link"); the server refused the code ("This invite link isn't valid, or it has been replaced");
+  or anything else, a generic "Something went wrong signing you in" with a small reason code
+  (`blocked`, `network`, `http-<status>`, `error`, or `legacy-extension`). Only the server's own
+  JSON 403 "open your company's invite link first" is a refused code; extensions before 0.1.4
+  reported refused codes and host blocks alike as "needs invite", so with a code in the browser
+  the page shows such a reply as the generic error (`legacy-extension`). The popup uses the same
+  three cases.
+- **Host blocks.** Vercel's automatic DDoS mitigation can put an IP under a "challenge" for some
+  minutes: every request gets 403, an HTML page and `x-vercel-mitigated: challenge` from Vercel,
+  never reaching our server. A page load lets the browser pass it; a fetch, and the extension's
+  service worker, cannot.
+  - Site (`server/components/host-block.tsx`, installed from `app/layout.tsx`): one wrapper
+    around `window.fetch` turns a blocked same-origin `/api/` response (that header, any 429, or
+    an HTML 403) into a `HostBlockedError` for every generated query and mutation. The app shows
+    one notice with a Reload button ("Our host paused requests from your network for a moment")
+    instead of each page's "could not be saved, try again", and React Query does not retry a
+    blocked query. The get-started page reloads itself once on a blocked `/api/auth/me` (guarded
+    by `sessionStorage` against loops), then shows the notice and stops polling.
+  - Extension (0.1.4, `extension/api.js` `isBlocked`, `extension/sync.js` `reach`): the same
+    test, plus any 403 whose body is not JSON. A blocked call throws `BlockedError` ("Couldn't
+    reach Challenge Sync just now. Trying again shortly."), which is never "needs invite", never
+    "token rejected" (no re-link, no token replaced) and never "signed out". After a block the
+    extension backs off, 30 seconds doubling to 10 minutes, during which calls fail without a
+    request and LinkedIn is not read for a join or sync that cannot land.
+  - The extension does not send cookies (`credentials: "include"`) to carry the browser's
+    challenge clearance; see the comment in `extension/sync.js`.
 - **Admins.** The system-admin flag is "admin". An admin can grant or remove it for others from
   the All users page, which also shows, generates and replaces the join link. The first admin is set in the database.
 - **Kept:** the email and password login, at `/auth/password`, for accounts that have one. The

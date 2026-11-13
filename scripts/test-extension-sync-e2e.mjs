@@ -11,7 +11,12 @@
 //   4. a snapshot shaped exactly like runSync's payload (background.js) is accepted and stored;
 //   5. a second snapshot with the posts past the refresh window left out (the extension's real
 //      planRefresh) is accepted, uploads fewer posts, and the server keeps and deletes nothing;
-//   6. a rejected sync token is recovered once from the website session, as pushSnapshot does.
+//   6. a rejected sync token is recovered once from the website session, as pushSnapshot does;
+//   7. a request the host blocks (Vercel's bot challenge: 403, text/html, `x-vercel-mitigated`,
+//      simulated here by answering in the server's place) is a temporary error everywhere: join
+//      is not "invite refused", a sync is not "token rejected", nothing is stored or replaced, and
+//      the extension backs off without touching the network, while the server's own JSON 403 for a
+//      wrong code is still "invite refused" and a removed account's 403 is neither.
 //
 // This is the server side of what scripts/test-join-flow-e2e.mjs does in a real browser. That
 // test still covers what only a browser can: the /join page setting its cookie, the get-started
@@ -98,8 +103,21 @@ globalThis.chrome = {
   },
 };
 const nativeFetch = globalThis.fetch;
-globalThis.fetch = (input, init) =>
-  nativeFetch(typeof input === "string" && input.startsWith(SERVER_URL) ? base + input.slice(SERVER_URL.length) : input, init);
+// Paths answered by the "host" instead of the server, and every server path the extension asked.
+const hostBlocks = new Map(); // path -> () => Response
+const asked = [];
+const challengePage = () =>
+  new Response("<!doctype html><title>Vercel Security Checkpoint</title><p>We're verifying your browser.</p>", {
+    status: 403,
+    headers: { "content-type": "text/html; charset=utf-8", "x-vercel-mitigated": "challenge" },
+  });
+globalThis.fetch = async (input, init) => {
+  if (typeof input !== "string" || !input.startsWith(SERVER_URL)) return nativeFetch(input, init);
+  const path = input.slice(SERVER_URL.length);
+  asked.push(path);
+  if (hostBlocks.has(path)) return hostBlocks.get(path)();
+  return nativeFetch(base + path, init);
+};
 
 const sync = await import("../extension/sync.js");
 const { getState, setState } = await import("../extension/storage.js");
@@ -121,8 +139,10 @@ try {
   // 1-2. Join with the code the /join page left behind.
   check("no join code before the join link is opened", (await sync.readJoinCode()) === null);
   cookies.set(JOIN_COOKIE, { value: encodeURIComponent("wrong code") });
-  check("a wrong join code asks for an invite and stores nothing",
-    (await sync.joinWithLinkedIn(member, await sync.readJoinCode())).needsInvite === true && !(await getState()).syncToken);
+  check("a wrong join code is refused by the server and stores nothing",
+    (await sync.joinWithLinkedIn(member, await sync.readJoinCode())).inviteRefused === true && !(await getState()).syncToken);
+  check("the server's refusal is the exact message the extension matches on",
+    readFileSync(resolve(ROOT, "server/app/api/auth/extension/join/route.rs"), "utf8").includes(`"${sync.INVITE_REFUSED_ERROR}"`));
   cookies.set(JOIN_COOKIE, { value: encodeURIComponent(JOIN_CODE) });
   check("the join code is read back from the site's cookie", (await sync.readJoinCode()) === JOIN_CODE);
   const joined = await sync.joinWithLinkedIn(member, JOIN_CODE);
@@ -198,6 +218,93 @@ try {
   const recovered = await sync.pushSnapshot(payloadFor(secondPlan));
   check("a rejected sync token is replaced from the website session and the sync goes through",
     recovered.ok === true && (await getState()).syncToken !== "not-a-real-token");
+
+  // 7. Requests the host blocks before they reach the server.
+  const { BLOCKED_MESSAGE } = await import("../extension/api.js");
+  const blockedError = async (call) => {
+    try {
+      const value = await call();
+      return { value };
+    } catch (err) {
+      return { blocked: err.blocked === true && err.message === BLOCKED_MESSAGE, err };
+    }
+  };
+  const before = await getState();
+  const plainJoin = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+  hostBlocks.set("/api/auth/extension/join", challengePage);
+  const challengedJoin = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+  check("sanity: the unblocked join above went through", plainJoin.value?.syncToken);
+  check("a challenged join is a temporary error, not an invite refusal",
+    challengedJoin.blocked && challengedJoin.value === undefined);
+  const afterJoin = await getState();
+  await setState({ syncToken: before.syncToken });
+
+  let count = asked.length;
+  const backedOff = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+  check("while backing off, the extension doesn't touch the network", backedOff.blocked && asked.length === count);
+  check("so the background never asks LinkedIn either", (() => { try { sync.assertServerReachable(); return false; } catch (e) { return e.blocked; } })());
+  sync.clearServerBackoff();
+  hostBlocks.delete("/api/auth/extension/join");
+  check("after a challenged join, a wrong code is still refused by the server",
+    (await sync.joinWithLinkedIn(member, "still wrong")).inviteRefused === true);
+  check("a challenged join stored nothing", afterJoin.syncToken === plainJoin.value.syncToken);
+
+  // Not every 403 is an invite refusal, and not every block says so in a header.
+  hostBlocks.set("/api/auth/extension/join", () => new Response("Forbidden", { status: 403, headers: { "content-type": "text/plain" } }));
+  check("a 403 with a non-JSON body is a host block too", (await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE))).blocked);
+  sync.clearServerBackoff();
+  hostBlocks.set("/api/auth/extension/join", () => Response.json({ error: "slow down" }, { status: 429 }));
+  check("a 429 is a host block", (await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE))).blocked);
+  sync.clearServerBackoff();
+  hostBlocks.set("/api/auth/extension/join", () =>
+    Response.json({ error: "this account has been removed; ask an admin to restore it" }, { status: 403 }));
+  const removed = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+  check("the server's other 403 (a removed account) is an error with its message and status, not an invite refusal",
+    removed.value === undefined && !removed.blocked && removed.err.status === 403 && /removed/.test(removed.err.message));
+  hostBlocks.set("/api/auth/extension/join", () => Response.json({ error: "boom" }, { status: 500 }));
+  const crashed = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+  check("a 500 from the server is an error with its status, not an invite refusal",
+    crashed.value === undefined && !crashed.blocked && crashed.err.status === 500);
+  hostBlocks.delete("/api/auth/extension/join");
+
+  // A challenged sync keeps the token and does not try to re-link.
+  const token = (await getState()).syncToken;
+  hostBlocks.set("/api/sync", challengePage);
+  count = asked.length;
+  const challengedSync = await blockedError(() => sync.pushSnapshot(payloadFor(secondPlan)));
+  check("a challenged sync is a temporary error", challengedSync.blocked);
+  check("a challenged sync is not read as a rejected token: no re-link, the token is kept",
+    asked.slice(count).every((path) => path === "/api/sync") && (await getState()).syncToken === token);
+  sync.clearServerBackoff();
+  hostBlocks.delete("/api/sync");
+
+  // A challenged web-session mint says so and leaves the cookie jar alone.
+  cookies.delete(SESSION_COOKIE);
+  hostBlocks.set("/api/auth/device/web-session", challengePage);
+  check("a challenged web-session request is a temporary error", (await blockedError(() => sync.ensureWebSession())).blocked);
+  check("and sets no session cookie and keeps the token", !cookies.has(SESSION_COOKIE) && (await getState()).syncToken === token);
+  sync.clearServerBackoff();
+  hostBlocks.delete("/api/auth/device/web-session");
+  check("unblocked, the web session is made again", (await sync.ensureWebSession()) === true);
+
+  // A challenged session exchange is not "no session" (null) and not a server error.
+  hostBlocks.set("/api/auth/device/session", challengePage);
+  check("a challenged session exchange is a temporary error", (await blockedError(() => sync.signInFromSession())).blocked);
+  sync.clearServerBackoff();
+  hostBlocks.delete("/api/auth/device/session");
+
+  hostBlocks.set("/api/me/sync-status", challengePage);
+  check("a challenged sync-status is a temporary error", (await blockedError(() => sync.fetchSyncStatus())).blocked);
+  sync.clearServerBackoff();
+  hostBlocks.delete("/api/me/sync-status");
+  check("unblocked, everything works again with the same token",
+    (await sync.fetchSyncStatus()).linked === true && (await sync.pushSnapshot(payloadFor(secondPlan))).ok === true &&
+      (await getState()).syncToken === token);
+
+  // The background's own reading of these answers (no browser here, so read from the source).
+  check("only the server's refusal sets refusedJoinCode",
+    /if \(data\.inviteRefused\) \{\s*refusedJoinCode = joinCode;/.test(background) &&
+      (background.match(/refusedJoinCode = (?!null)/g) || []).length === 1);
 } catch (err) {
   console.error(`FAIL: ${err.message}\nserver log tail:\n${serverLog.slice(-1500)}`);
   process.exitCode = 1;

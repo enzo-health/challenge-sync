@@ -2,7 +2,16 @@
 import { SYNC_CHECK_MINUTES, SYNC_JITTER_MINUTES, MIN_SYNC_INTERVAL_MINUTES } from "./config.js";
 import { getState, setState, isLinked } from "./storage.js";
 import { collectSnapshot, getMe, getPostFeed, getPostComments, getFollowerCount, diagnose, isLinkedInSignedIn } from "./linkedin.js";
-import { ensureWebSession, fetchSyncStatus, joinWithLinkedIn, linkIdentityToAccount, pushSnapshot, readJoinCode, signInFromSession } from "./sync.js";
+import {
+  assertServerReachable,
+  ensureWebSession,
+  fetchSyncStatus,
+  joinWithLinkedIn,
+  linkIdentityToAccount,
+  pushSnapshot,
+  readJoinCode,
+  signInFromSession,
+} from "./sync.js";
 import { SERVER_URL, LINKEDIN_ORIGIN } from "./config.js";
 
 const ALARM = "challenge-sync";
@@ -31,7 +40,7 @@ chrome.runtime.onStartup.addListener(scheduleSync);
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) {
     ensureLinked()
-      .then(() => ensureWebSession())
+      .then(() => ensureWebSession().catch(() => false))
       .then(() => runSync())
       .catch(() => {});
   }
@@ -46,10 +55,18 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // A browser that is already signed in on the site (a password account) links through that
 // session instead, exactly as before.
 //
-// Returns `{ ok: true }`, or `{ ok: false }` with the reason the popup and the site can show.
+// Returns `{ ok: true }`, or `{ ok: false }` with exactly one reason the popup and the site show:
+//   needsLinkedIn   not logged in to LinkedIn in this browser;
+//   needsInvite     no join code: the invite link was never opened in this browser;
+//   inviteRefused   our server refused the join code (wrong, or replaced by a newer link);
+//   error           anything else, with `errorCode`: "blocked" (the host stopped the request
+//                   before it reached the server), "network", "http-<status>", or "error".
+// Only the server's own refusal is `inviteRefused`, so a firewall challenge or an outage can
+// never be shown as an invite problem.
 let linking = null;
 // A join code the server has already refused. LinkedIn is asked who you are before each join
 // attempt, so retrying a known-bad code on every poll would be needless traffic to LinkedIn.
+// Set only from `inviteRefused`, never from a failure to reach the server.
 let refusedJoinCode = null;
 async function ensureLinked() {
   if (await isLinked()) return { ok: true };
@@ -59,7 +76,10 @@ async function ensureLinked() {
       if (!(await isLinkedInSignedIn())) return { ok: false, needsLinkedIn: true };
       const account = await signInFromSession();
       const joinCode = account ? null : await readJoinCode();
-      if (!account && (!joinCode || joinCode === refusedJoinCode)) return { ok: false, needsInvite: true };
+      if (!account && !joinCode) return { ok: false, needsInvite: true };
+      if (!account && joinCode === refusedJoinCode) return { ok: false, inviteRefused: true };
+      // Backing off from a host block: don't ask LinkedIn who you are for a join that can't land.
+      assertServerReachable();
       const me = await getMe();
       if (!me.memberUrn) throw new Error("Couldn't read your LinkedIn profile. Open LinkedIn and log in first.");
       const identity = {
@@ -74,9 +94,9 @@ async function ensureLinked() {
         data = await linkIdentityToAccount(account.syncToken, identity);
       } else {
         data = await joinWithLinkedIn(identity, joinCode);
-        if (data.needsInvite) {
+        if (data.inviteRefused) {
           refusedJoinCode = joinCode;
-          return { ok: false, needsInvite: true };
+          return { ok: false, inviteRefused: true };
         }
       }
       await scheduleSync();
@@ -86,7 +106,7 @@ async function ensureLinked() {
     } catch (err) {
       const message = friendlyError(err);
       await setState({ lastError: message });
-      return { ok: false, error: message };
+      return { ok: false, error: message, errorCode: errorCode(err) };
     } finally {
       linking = null;
     }
@@ -118,6 +138,8 @@ async function runSync({ manual = false } = {}) {
   }
 
   try {
+    // Backing off from a host block: don't read LinkedIn for an upload that can't land.
+    assertServerReachable();
     const snap = await collectSnapshot({ recordedPosts: (await getState()).recordedPosts });
     const payload = {
       capturedAt: new Date().toISOString(),
@@ -157,6 +179,14 @@ function friendlyError(err) {
   return m;
 }
 
+// A short, stable name for a failure, shown in small print so a screenshot says which case it was.
+function errorCode(err) {
+  if (err?.blocked) return "blocked";
+  if (typeof err?.status === "number") return `http-${err.status}`;
+  if (err instanceof TypeError) return "network"; // what fetch throws when nothing answered
+  return "error";
+}
+
 // --- popup message API -----------------------------------------------------
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
@@ -194,13 +224,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           // The site's get-started page, relayed by bridge.js. It only asks while it is signed
           // out, so a session cookie that is still present is stale and gets replaced.
           const link = await ensureLinked();
-          if (link.ok) await ensureWebSession({ force: true });
+          let error = link.error || null;
+          let code = link.errorCode || null;
+          if (link.ok) {
+            // A blocked web-session request is said out loud rather than read as "signed out".
+            await ensureWebSession({ force: true }).catch((err) => {
+              error = friendlyError(err);
+              code = errorCode(err);
+            });
+          }
           sendResponse({
             ok: true,
             linkedInSignedIn: await isLinkedInSignedIn(),
             linked: Boolean(link.ok),
             needsInvite: Boolean(link.needsInvite),
-            error: link.error || null,
+            inviteRefused: Boolean(link.inviteRefused),
+            error,
+            errorCode: code,
           });
           break;
         }
@@ -235,7 +275,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: false, error: "Unknown message." });
       }
     } catch (err) {
-      sendResponse({ ok: false, error: friendlyError(err) });
+      sendResponse({ ok: false, error: friendlyError(err), errorCode: errorCode(err) });
     }
   })();
   return true; // async response

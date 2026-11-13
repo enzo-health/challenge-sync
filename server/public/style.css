@@ -150,6 +150,7 @@ button:disabled, .btn:disabled { cursor: not-allowed; opacity: .65; }
 .notice { padding: 11px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; }
 .notice.err { background: #fdeceb; color: var(--err); }
 .notice.ok { background: #e7f6ef; color: var(--ok); }
+.host-blocked { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }

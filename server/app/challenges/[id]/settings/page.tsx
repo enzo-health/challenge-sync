@@ -10,6 +10,7 @@ import type { ScoringConfig } from "@linkedin-challenge/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ScoringFields } from "../../../../components/challenge-form";
+import { errorText } from "../../../../components/host-block";
 
 function isoDate(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(0, 10);
@@ -77,7 +78,7 @@ export default function ChallengeSettingsPage({ params }: { params: { id: string
                   setError(res.data?.error ?? "Could not save the challenge.");
                 }
               },
-              onError: () => setError("Could not save the challenge."),
+              onError: (error) => setError(errorText(error, "Could not save the challenge.")),
             },
           );
         }}

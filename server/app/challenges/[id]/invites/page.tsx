@@ -1,5 +1,6 @@
 import { useCreateInvites, useGetChallengeInvites, useGetLeaderboard } from "@linkedin-challenge/client/react-query";
 import { useState, type ChangeEvent } from "react";
+import { errorText } from "../../../../components/host-block";
 
 function splitEmails(value: string) {
   return [...new Set(value.split(/[\s,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
@@ -86,7 +87,7 @@ export default function ChallengeInvitesPage({ params }: { params: { id: string 
               setRecipients("");
               void refetch();
             },
-            onError: () => setError("Could not create invitations."),
+            onError: (error) => setError(errorText(error, "Could not create invitations.")),
           });
         }}>
           <label className="field">

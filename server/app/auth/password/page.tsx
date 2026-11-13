@@ -1,5 +1,6 @@
 import { useLogin } from "@linkedin-challenge/client/react-query";
 import { useState } from "react";
+import { errorText } from "../../../components/host-block";
 
 export default function PasswordLogin() {
   const [email, setEmail] = useState("");
@@ -41,7 +42,7 @@ export default function PasswordLogin() {
                     setError("Invalid email or password.");
                   }
                 },
-                onError: () => setError("Invalid email or password."),
+                onError: (error) => setError(errorText(error, "Invalid email or password.")),
               },
             );
           }}

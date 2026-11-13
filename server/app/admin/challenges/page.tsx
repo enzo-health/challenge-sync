@@ -6,6 +6,7 @@ import { fmtDate } from "../../../components/format";
 import { ScoringFields } from "../../../components/challenge-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { errorText } from "../../../components/host-block";
 
 function isoDate(offsetDays = 0): string {
   const d = new Date();
@@ -65,7 +66,7 @@ function NewChallenge({
                     setError(res.data?.error ?? "Could not create the challenge.");
                   }
                 },
-                onError: () => setError("Could not create the challenge."),
+                onError: (error) => setError(errorText(error, "Could not create the challenge.")),
               },
             );
           }}

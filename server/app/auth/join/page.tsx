@@ -3,6 +3,7 @@
 import { EXTENSION_STORE_URL } from "../../../components/links";
 import { useJoinWithInvite } from "@linkedin-challenge/client/react-query";
 import { useState } from "react";
+import { errorText } from "../../../components/host-block";
 
 export default function Join() {
   const [inviteCode, setInviteCode] = useState("");
@@ -58,7 +59,7 @@ export default function Join() {
                     setError(res.data?.error ?? "Something went wrong. Please try again.");
                   }
                 },
-                onError: () => setError("Something went wrong. Please try again."),
+                onError: (error) => setError(errorText(error, "Something went wrong. Please try again.")),
               },
             );
           }}

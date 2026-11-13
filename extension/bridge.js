@@ -27,7 +27,12 @@ window.addEventListener("message", async (event) => {
       linkedInSignedIn: Boolean(reply.linkedInSignedIn),
       linked: Boolean(reply.linked),
       needsInvite: Boolean(reply.needsInvite),
+      // Since 0.1.4: the server refused the join code (as opposed to there being none), and a
+      // short code naming any other failure. The page reads `inviteRefused` being present at all
+      // as "this extension tells the invite cases apart"; 0.1.3 lumped them into needsInvite.
+      inviteRefused: Boolean(reply.inviteRefused),
       error: reply.error || null,
+      errorCode: reply.errorCode || null,
     },
     window.location.origin,
   );

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { ActionMenu, type MenuAction } from "../../components/action-menu";
 import { ConfirmModal } from "../../components/confirm-modal";
 import { fmtAgo, fmtInt, fmtLocalDate, initials } from "../../components/format";
+import { errorText } from "../../components/host-block";
 
 // What the confirmation dialog is asking about. One dialog at a time, so one piece of state.
 type Pending =
@@ -115,7 +116,7 @@ export default function SystemPanel() {
       closeConfirm();
       refresh();
     },
-    onError: () => setConfirmError(fallback),
+    onError: (error: unknown) => setConfirmError(errorText(error, fallback)),
   });
 
   const confirm = () => {
@@ -147,7 +148,7 @@ export default function SystemPanel() {
             closeConfirm();
             refresh();
           },
-          onError: () => setConfirmError("The link could not be generated. Try again."),
+          onError: (error) => setConfirmError(errorText(error, "The link could not be generated. Try again.")),
         });
         return;
     }
@@ -164,7 +165,7 @@ export default function SystemPanel() {
           if (res.status === 200) window.location.href = "/";
           else setActionError(res.data?.error || `Could not view as ${m.displayName}.`);
         },
-        onError: () => setActionError(`Could not view as ${m.displayName}.`),
+        onError: (error) => setActionError(errorText(error, `Could not view as ${m.displayName}.`)),
       },
     );
   };

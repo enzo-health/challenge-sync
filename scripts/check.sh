@@ -3,7 +3,9 @@
 #
 # FAST TIER, always, a couple of seconds: build once, then everything at the same time: typecheck,
 # cargo test, syntax checks, the refresh-window unit test, the extension's own sync code against a
-# local server (scripts/test-extension-sync-e2e.mjs), and every server e2e. Each server e2e starts
+# local server (scripts/test-extension-sync-e2e.mjs), the signed-out page's polling and the app's
+# host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
+# ~8s, no extension and no LinkedIn), and every server e2e. Each server e2e starts
 # its own debug server on PORT=0 (a free port the OS picks) with a fresh temporary database, so
 # they share nothing.
 #
@@ -15,7 +17,8 @@
 #   - every tracked or new (not ignored) file under extension/ (dist/ is ignored),
 #   - the two test scripts,
 #   - the site's half of the sign-in handshake that only they exercise: server/app/join/ and
-#     server/components/get-started.tsx (bridge.js talks to it).
+#     server/components/get-started.tsx (bridge.js talks to it), with the poll schedule and the
+#     host-block detection it imports.
 #
 # That is a content hash, so uncommitted edits count and it doesn't matter how far behind main is.
 # After both pass, the hash is written to .check-live-pass (git-ignored, per machine); a later run
@@ -47,7 +50,8 @@ unset DATABASE_URL DATABASE_URL_UNPOOLED
 # --- does the live tier need to run? -------------------------------------------------------------
 live_record=$root/.check-live-pass
 live_paths=(extension scripts/test-extension-e2e.mjs scripts/test-join-flow-e2e.mjs
-            server/app/join server/components/get-started.tsx)
+            server/app/join server/components/get-started.tsx server/components/poll-schedule.ts
+            server/components/host-block.tsx)
 
 live_hash() {
   git ls-files -z -c -o --exclude-standard -- "${live_paths[@]}" | sort -zu |
@@ -208,6 +212,7 @@ run diff-check git diff --check
 # --- checks that run the server, and the live tier -----------------------------------------------
 server_steps=(
   "extension-sync node scripts/test-extension-sync-e2e.mjs"
+  "signin-polling node scripts/test-signin-polling.mjs"
   "auth server/scripts/test-auth-e2e.sh"
   "followers python3 server/scripts/test-followers-e2e.py"
   "sync-devices python3 server/scripts/test-sync-devices-e2e.py"

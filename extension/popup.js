@@ -42,17 +42,27 @@ function renderLinkView(link) {
     li.querySelector(".mark").textContent = good ? "✓" : "✕";
     $(fixId).hidden = good;
   };
-  set("check-app", !link.needsInvite, "fix-app");
+  // Three different failures, three different words: no invite link opened yet (the checklist
+  // says so), an invite link the server refused (say exactly that), and anything else (a generic
+  // error with its code; never an invite message, since the code was not what failed).
+  set("check-app", !link.needsInvite && !link.inviteRefused, "fix-app");
   set("check-li", !link.needsLinkedIn, "fix-li");
-  const failed = Boolean(link.error);
-  $("lede-text").textContent = failed
-    ? "Couldn't connect this browser."
-    : link.needsInvite || link.needsLinkedIn
-      ? "Two things to do, then this connects on its own."
-      : "Connecting this browser to your challenge account…";
+  const failed = Boolean(link.error || link.inviteRefused);
+  $("lede-text").textContent = link.inviteRefused
+    ? "This invite link didn't work."
+    : failed
+      ? "Couldn't connect this browser."
+      : link.needsInvite || link.needsLinkedIn
+        ? "Two things to do, then this connects on its own."
+        : "Connecting this browser to your challenge account…";
   $("link-error").hidden = !failed;
-  $("link-error").textContent = link.error || "";
-  $("link-btn").hidden = !failed;
+  $("link-error").textContent = link.inviteRefused
+    ? "The invite link opened in this browser isn't valid, or has been replaced by a newer one. Ask whoever runs Challenge Sync at your company for the current link and open it here."
+    : link.error
+      ? `${link.error}${link.errorCode ? ` (${link.errorCode})` : ""}`
+      : "";
+  // "Try again" can't fix a refused code; opening the current invite link does.
+  $("link-btn").hidden = !link.error;
 }
 
 // The server sees every device, so its numbers win; local state is the fallback when it can't be
