@@ -91,6 +91,7 @@ check:
     python3 server/scripts/test-delete-member-e2e.py
     python3 server/scripts/test-snapshot-dedupe-e2e.py
     python3 server/scripts/test-stats-e2e.py
+    python3 server/scripts/test-sync-banner-e2e.py
     node scripts/test-extension-e2e.mjs
     node scripts/test-join-flow-e2e.mjs
     git diff --check
@@ -147,6 +148,11 @@ test-snapshot-dedupe-e2e:
 test-stats-e2e:
     cd server && cargo build --bin linkedin-challenge-server
     python3 server/scripts/test-stats-e2e.py
+
+# Verify the "Chrome paused the extension" flag: stale after two days without a sync, or never.
+test-sync-banner-e2e:
+    cd server && cargo build --bin linkedin-challenge-server
+    python3 server/scripts/test-sync-banner-e2e.py
 
 # Exercise password auth against a real server and isolated temporary database.
 test-auth-e2e:
