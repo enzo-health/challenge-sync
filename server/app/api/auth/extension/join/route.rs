@@ -87,6 +87,12 @@ pub async fn post(
     if existing.as_ref().is_some_and(Member::is_deleted) {
         return Err(removed());
     }
+    // The identity is an unverified claim, so a join code plus someone's LinkedIn id must never be
+    // enough to become an admin: anyone could take the whole product. Admins sign in on the website
+    // (`/auth/password`), and the extension then borrows that session (`/api/auth/device/session`).
+    if existing.as_ref().is_some_and(|member| member.is_system_admin) {
+        return Err(admin_must_use_website());
+    }
     let (member, created) = match existing {
         Some(member) => (member, false),
         None => {
@@ -129,6 +135,9 @@ pub async fn post(
                     if member.is_deleted() {
                         return Err(removed());
                     }
+                    if member.is_system_admin {
+                        return Err(admin_must_use_website());
+                    }
                     (member, false)
                 }
                 Err(error) => return Err(error.into()),
@@ -155,6 +164,14 @@ fn removed() -> ApiError {
         "this account has been removed; ask an admin to restore it",
     )
     .with_code(codes::ACCOUNT_DELETED)
+}
+
+/// The refusal for a LinkedIn identity that belongs to an admin account.
+fn admin_must_use_website() -> ApiError {
+    ApiError::new(
+        StatusCode::FORBIDDEN,
+        "admin accounts sign in on the website first; the extension then links from that session",
+    )
 }
 
 /// The LinkedIn name, then the public identifier, then a neutral fallback.

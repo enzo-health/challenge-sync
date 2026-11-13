@@ -41,6 +41,12 @@ pub async fn post(
     Extension(mut db): Extension<Db>,
     Json(req): Json<SignupRequest>,
 ) -> ApiResult<(HeaderMap, Json<SignupResponse>)> {
+    // The signup page is gone and the company join link is the only way in; this API stays for the
+    // e2e tests, which run the debug build. In a release build (production) it would let anyone on
+    // the internet make an account with an invented enzo.health address, skipping the join link.
+    if !cfg!(debug_assertions) && std::env::var_os("ALLOW_PASSWORD_SIGNUP").is_none() {
+        return Err(ApiError::not_found("not found"));
+    }
     if let Some(error) = account_validation_error(&req.name, &req.email, &req.password) {
         return Err(ApiError::bad_request(error));
     }
