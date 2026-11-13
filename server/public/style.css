@@ -157,6 +157,20 @@ ul.plain { list-style: none; padding: 0; margin: 0; }
 ul.plain li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 ul.plain li:last-child { border-bottom: none; }
 
+/* --- "Chrome paused Challenge Sync" (components/sync-paused.tsx) ----------------------------- */
+.paused-banner {
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  background: var(--warn-bg); border: 1px solid var(--warn-line); border-left: 4px solid var(--series-you);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 22px;
+}
+.paused-text { flex: 1 1 280px; min-width: 0; }
+.paused-title { margin: 0 0 3px; font-weight: 700; color: var(--warn-fg); }
+.paused-body { margin: 0; font-size: 14px; color: var(--fg); }
+.paused-action { flex: none; white-space: nowrap; }
+/* Inside the 430px sign-in card there is no room beside the text: stack, full-width button. */
+.auth-card .paused-action { width: 100%; text-align: center; }
+@media (max-width: 520px) { .paused-action { width: 100%; text-align: center; } }
+
 /* --- authentication ------------------------------------------------------------------------ */
 .auth-page {
   width: 100%; min-height: calc(100vh - 92px); display: grid; place-items: center;
@@ -374,7 +388,7 @@ tr.deleted-row .avatar, tr.deleted-row .who span:last-child { opacity: .6; }
 /* --- company stats overview (app/page.tsx) ------------------------------------------------- */
 /* Two chart series, checked for colour-blind separation on both surfaces: everyone else in the
    brand teal family, the viewer in amber. Text never takes these colours. */
-:root { --series-rest: #00918c; --series-you: #d97706; --warn-bg: #fff7e6; --warn-fg: #8a6116; }
+:root { --series-rest: #00918c; --series-you: #d97706; --warn-bg: #fff7e6; --warn-fg: #8a6116; --warn-line: #f3dcae; }
 .stats-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .stats-head .lede { margin-bottom: 16px; }
 .period-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; margin-bottom: 16px; }
@@ -445,7 +459,7 @@ tr.deleted-row .avatar, tr.deleted-row .who span:last-child { opacity: .6; }
   .stats-charts, .stats-lists { grid-template-columns: 1fr; }
 }
 @media (prefers-color-scheme: dark) {
-  :root { --series-rest: #00918c; --series-you: #d97706; --warn-bg: #33290f; --warn-fg: #e3c26b; }
+  :root { --series-rest: #00918c; --series-you: #d97706; --warn-bg: #33290f; --warn-fg: #e3c26b; --warn-line: #57431a; }
   .tile-change.up { color: #5cc796; }
   .tile-change.down { color: #f0857a; }
   .period-switch button.on { background: var(--brand); color: #0c1f1e; }

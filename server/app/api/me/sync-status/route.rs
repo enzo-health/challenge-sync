@@ -8,7 +8,8 @@
 use axum::{Extension, Json};
 use http::HeaderMap;
 use linkedin_challenge_server::auth::member_from_bearer;
-use linkedin_challenge_server::models::{Post, ProfileSnapshot};
+use linkedin_challenge_server::dto::last_sync_at;
+use linkedin_challenge_server::models::Post;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -47,12 +48,7 @@ pub async fn get(
         .await?
         .len();
     // Every sync writes exactly one profile snapshot, so its latest capture is the last sync time.
-    let last_sync_at = ProfileSnapshot::filter(ProfileSnapshot::fields().member_id().eq(member.id))
-        .exec(&mut db)
-        .await?
-        .into_iter()
-        .map(|snapshot| snapshot.captured_at)
-        .max();
+    let last_sync_at = last_sync_at(&mut db, member.id).await?;
 
     Ok(Json(SyncStatusResponse {
         display_name: member.display_name,

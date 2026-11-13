@@ -4,9 +4,11 @@
 //
 // It talks to the extension through `extension/bridge.js`, a content script the extension runs on
 // this site. The page posts a hello; the bridge answers with what the extension can see. No answer
-// means the extension is not installed (or is an old version without the bridge).
+// means the extension is not installed (or is an old version without the bridge), or that Chrome
+// has switched it off — so the page also offers the "Chrome paused it" way back (sync-paused.tsx).
 import { useEffect, useState } from "react";
 import { EXTENSION_STORE_URL } from "./links";
+import { SyncPausedNotice } from "./sync-paused";
 
 type ExtensionStatus = {
   linkedInSignedIn: boolean;
@@ -16,6 +18,9 @@ type ExtensionStatus = {
 };
 
 const POLL_MS = 3000;
+// How long the first hello may go unanswered before the page treats the extension as missing.
+// A sleeping service worker can take a moment to wake; an installed one answers well inside this.
+const NO_ANSWER_MS = 2000;
 
 function Step({ done, title, children }: { done: boolean; title: string; children?: React.ReactNode }) {
   return (
@@ -31,6 +36,24 @@ function Step({ done, title, children }: { done: boolean; title: string; childre
 
 export function GetStarted({ invited = false }: { invited?: boolean }) {
   const [status, setStatus] = useState<ExtensionStatus | null>(null);
+  const [noAnswer, setNoAnswer] = useState(false);
+  // Set once they click "Re-enable": Chrome only runs the extension's bridge on pages loaded after
+  // it is switched back on, so this tab needs one reload when they come back to it.
+  const [reenabling, setReenabling] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setNoAnswer(true), NO_ANSWER_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!reenabling || status !== null) return;
+    const onReturn = () => {
+      if (document.visibilityState === "visible") window.location.reload();
+    };
+    document.addEventListener("visibilitychange", onReturn);
+    return () => document.removeEventListener("visibilitychange", onReturn);
+  }, [reenabling, status]);
 
   useEffect(() => {
     let stopped = false;
@@ -83,6 +106,8 @@ export function GetStarted({ invited = false }: { invited?: boolean }) {
           There is no password. Get the extension, make sure you&rsquo;re logged in to LinkedIn, and
           this page signs you in by itself.
         </p>
+
+        {!installed && noAnswer && <SyncPausedNotice onOpen={() => setReenabling(true)} />}
 
         <ol className="start-steps">
           <Step done={installed} title="Get the Challenge Sync extension">

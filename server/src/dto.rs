@@ -1117,6 +1117,28 @@ pub struct ProfileReadings {
     pub followers: std::collections::HashMap<i64, i64>,
 }
 
+/// How long without a sync before the site tells a member their extension has stopped (the
+/// "Chrome paused Challenge Sync" banner). The extension only syncs while Chrome is open, so a
+/// shorter gap would nag anyone who simply had a day off.
+pub const SYNC_STALE_AFTER_SECS: i64 = 2 * 86_400;
+
+/// When this member last synced from any device: the newest `ProfileSnapshot.captured_at` (the
+/// sync endpoint writes one on every successful sync, changed posts or not). None if never.
+pub async fn last_sync_at(db: &mut Db, member_id: i64) -> ApiResult<Option<i64>> {
+    use crate::models::ProfileSnapshot;
+    Ok(ProfileSnapshot::filter(ProfileSnapshot::fields().member_id().eq(member_id))
+        .order_by(ProfileSnapshot::fields().captured_at().desc())
+        .first()
+        .exec(&mut *db)
+        .await?
+        .map(|snapshot| snapshot.captured_at))
+}
+
+/// Whether a last sync at `last_sync_at` (unix seconds, None = never) counts as stopped at `now`.
+pub fn sync_is_stale(last_sync_at: Option<i64>, now: i64) -> bool {
+    last_sync_at.is_none_or(|at| now - at > SYNC_STALE_AFTER_SECS)
+}
+
 /// One whole-table read of `profile_snapshots`, shared by the system panel and the reporting API.
 pub async fn profile_readings(db: &mut Db) -> ApiResult<ProfileReadings> {
     let mut last_synced: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
@@ -1173,4 +1195,19 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
         None => crate::auth::fixed_join_code(),
     };
     Ok(SystemOverview { members, join_code })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SYNC_STALE_AFTER_SECS, sync_is_stale};
+
+    #[test]
+    fn sync_goes_stale_after_two_days_or_never() {
+        let now = 1_800_000_000;
+        assert!(sync_is_stale(None, now));
+        assert!(!sync_is_stale(Some(now), now));
+        assert!(!sync_is_stale(Some(now - SYNC_STALE_AFTER_SECS), now));
+        assert!(sync_is_stale(Some(now - SYNC_STALE_AFTER_SECS - 1), now));
+        assert!(sync_is_stale(Some(now - 3 * 86_400), now));
+    }
 }

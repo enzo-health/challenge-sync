@@ -8,6 +8,7 @@ import { Component, type ReactNode } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useGetChallenges, useGetMe, useLogout, useStopImpersonation } from "@linkedin-challenge/client/react-query";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
+import { SyncPausedBanner } from "../components/sync-paused";
 
 function NavLink({ href, pathname }: { href: string; pathname: string }) {
   // Prefix-match nested routes; exact-match the landing page and the owner overview so they don't
@@ -193,7 +194,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       <NuqsAdapter>
         <div className="shell">
           <Sidebar />
-          <main>{children}</main>
+          <main>
+            <SyncPausedBanner />
+            {children}
+          </main>
         </div>
       </NuqsAdapter>
     </>
