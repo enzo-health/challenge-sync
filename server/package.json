@@ -14,7 +14,7 @@
     "client:prepare": "npm run client:ensure && npm run client:dump && npm run client:orval",
     "client:release": "npm run client:prepare && npm run client:build",
     "client:generate": "npm run client:prepare && cargo build && npm run client:build",
-    "typecheck": "tsc --project tsconfig.json"
+    "typecheck": "tsc --project tsconfig.json --incremental --tsBuildInfoFile target/typecheck.tsbuildinfo"
   },
   "dependencies": {
     "@linkedin-challenge/client": "file:./.nextrs/client",

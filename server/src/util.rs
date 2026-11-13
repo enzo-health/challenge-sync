@@ -9,6 +9,28 @@ pub fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+        + dev_clock_offset()
+}
+
+/// DEBUG BUILDS ONLY: seconds added to the clock, read from the file named by
+/// `DEV_CLOCK_OFFSET_FILE` (unset, missing or unreadable means 0).
+///
+/// Readings are stamped to the second, so an e2e test that needs several syncs in distinct seconds
+/// used to sleep a second between them. With this it moves the server's clock forward instead,
+/// e.g. `server/scripts/test-snapshot-dedupe-e2e.py`. A release build (everything deployed, and
+/// `just run-prod`) compiles the version below, which is a constant 0: no request, header or
+/// environment variable can move a deployed server's clock.
+#[cfg(debug_assertions)]
+fn dev_clock_offset() -> i64 {
+    std::env::var_os("DEV_CLOCK_OFFSET_FILE")
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+#[cfg(not(debug_assertions))]
+const fn dev_clock_offset() -> i64 {
+    0
 }
 
 /// Parse an ISO-8601 timestamp like `2026-08-08T12:00:00.000Z` (or `...+00:00`) into unix seconds.

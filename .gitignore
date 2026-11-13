@@ -20,3 +20,6 @@ dist/
 # Built extension packages.
 extension/dist/
 .gstack/
+
+# scripts/check.sh: the extension inputs the live LinkedIn browser tests last passed with, on this machine.
+.check-live-pass

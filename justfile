@@ -65,12 +65,13 @@ deploy: deploy-check
 deploy-preview: deploy-check
     cd server && ./scripts/deploy-prebuilt.sh --preview
 
-# Build once, then run every check at the same time where they can't collide (scripts/check.sh):
-# typecheck, cargo test, syntax checks, the refresh-window unit test, and each server e2e on its
-# own free port and temporary database, all alongside the two browser tests, which run one after
-# the other on the signed-in dev profile against the existing extension/dist/unpacked build. The
-# join-flow browser test (two full live LinkedIn syncs, ~2.5 minutes) sets the total. Prints one
-# line per step with its time; on failure, the failing step's output.
+# All checks, via scripts/check.sh. The fast tier (about 1.5s warm) always runs: build once, then
+# typecheck, cargo test, syntax checks, unit tests, the extension's sync code against a local server,
+# and every server e2e, all at once, each on its own port and temporary database. The two live
+# LinkedIn browser tests (~2.5 min) run only when the extension, their scripts, or the site's
+# sign-in handshake changed since they last passed on this machine (hash in .check-live-pass).
+# CHECK_LIVE=always forces them, CHECK_LIVE=never skips them (exit 3 if they were due);
+# `scripts/check.sh --live-status` says whether they would run.
 check:
     scripts/check.sh
 

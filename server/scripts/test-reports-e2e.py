@@ -41,10 +41,16 @@ def check(name, condition):
 
 with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
     log_path = Path(directory) / 'server.log'
+    # The debug server adds this many seconds to its clock (DEV_CLOCK_OFFSET_FILE, debug builds
+    # only), so the test can move time on a second instead of sleeping one.
+    clock_path = Path(directory) / 'clock-offset'
+    clock_path.write_text('0')
+    def advance_clock():
+        clock_path.write_text(str(int(clock_path.read_text()) + 1))
     with log_path.open('w') as log:
         process = subprocess.Popen([str(ROOT / 'target/debug/linkedin-challenge-server')], cwd=ROOT,
             env={**os.environ, 'DATABASE_URL': f'turso:{directory}/test.db', 'SEED_DEMO': '1', 'PORT': '0',
-                 'JOIN_CODE': JOIN_CODE},
+                 'JOIN_CODE': JOIN_CODE, 'DEV_CLOCK_OFFSET_FILE': str(clock_path)},
             stdout=log, stderr=log)
     try:
         for _ in range(200):
@@ -151,7 +157,7 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
         # keep 3,200 rather than drop the post.
         sync(sam_token, [post('urn:li:activity:s9', '2025-04-01T12:00:00Z', 5000, 3200)])
         first_read = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        time.sleep(1.1)
+        advance_clock()  # the later read lands in a later second
         sync(sam_token, [post('urn:li:activity:s9', '2025-04-01T12:00:00Z', 5600, None)])
 
         week = {'since': '2025-03-03', 'until': '2025-03-09'}
@@ -394,7 +400,7 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
               '@' not in raw.body.decode() and 'email' not in raw.body.decode().lower())
 
         before = by_id[rita_id]['lastSyncedAtUnix']
-        time.sleep(1.1)
+        advance_clock()
         sync(rita_token, [post('urn:li:activity:r7', '2025-04-04T03:30:00Z', 1000, 100)])
         after = {m['memberId']: m for m in anon.request('/api/v1/members', token=key)['members']}[rita_id]
         check('a sync with nothing new still advances lastSyncedAt', after['lastSyncedAtUnix'] > before)

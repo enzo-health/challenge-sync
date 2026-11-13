@@ -31,7 +31,7 @@ Then, from the repository root:
 just doctor             # verify local tools
 just dev                # local file DB + server reloads at http://localhost:3312
 just extension-dev      # extension/dist/unpacked, baked for that local server
-just check              # build, typecheck, and every test, in parallel (scripts/check.sh)
+just check              # every check; live LinkedIn tests only if the extension changed
 ```
 
 Every debug server start idempotently creates one empty local account, without challenges or fake
