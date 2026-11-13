@@ -99,7 +99,7 @@ export function GetStarted({ invited = false }: { invited?: boolean }) {
 
         {installed && linkedIn && status?.needsInvite && (
           <div className="notice err" role="alert">
-            You need your company&rsquo;s invite link. Ask whoever runs your challenge for it, open it
+            You need your company&rsquo;s invite link. Ask whoever runs Challenge Sync at your company for it, open it
             in this browser, and you&rsquo;re in.
           </div>
         )}

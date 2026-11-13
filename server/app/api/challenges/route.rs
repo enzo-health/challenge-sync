@@ -3,7 +3,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{ChallengeList, challenge_list, require_member};
+use linkedin_challenge_server::dto::{ChallengeList, challenge_list, require_challenge_user};
 use linkedin_challenge_server::enroll::enroll_everyone;
 use linkedin_challenge_server::models::{ChallengeMembership, Competition};
 use linkedin_challenge_server::scoring::ScoringConfig;
@@ -18,7 +18,7 @@ pub async fn get(
     Extension(mut db): Extension<Db>,
     headers: HeaderMap,
 ) -> Result<Json<ChallengeList>, ApiError> {
-    let member = require_member(&mut db, &headers).await?;
+    let member = require_challenge_user(&mut db, &headers).await?;
     Ok(Json(challenge_list(&mut db, &member).await?))
 }
 
@@ -43,7 +43,7 @@ pub async fn post(
     headers: HeaderMap,
     Json(req): Json<CreateChallengeRequest>,
 ) -> Result<Json<CreateChallengeResponse>, ApiError> {
-    let creator = require_member(&mut db, &headers).await?;
+    let creator = require_challenge_user(&mut db, &headers).await?;
     let name = req.name.trim();
     if name.is_empty() {
         return Err(ApiError::bad_request("challenge name is required"));

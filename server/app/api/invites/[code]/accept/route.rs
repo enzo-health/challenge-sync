@@ -3,7 +3,7 @@
 use axum::extract::Path;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::require_member;
+use linkedin_challenge_server::dto::require_challenge_user;
 use linkedin_challenge_server::models::{ChallengeMembership, Competition, Invite};
 use linkedin_challenge_server::util::now_unix;
 use linkedin_challenge_server::web::ApiError;
@@ -21,7 +21,7 @@ pub async fn post(
     headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Json<AcceptInviteResponse>, ApiError> {
-    let member = require_member(&mut db, &headers).await?;
+    let member = require_challenge_user(&mut db, &headers).await?;
     let email = member.email.as_deref().unwrap_or_default().to_lowercase();
     let invite = Invite::filter_by_code(code.trim()).first().exec(&mut db).await?
         .filter(|invite| !invite.redeemed && invite.email.as_deref() == Some(email.as_str()))

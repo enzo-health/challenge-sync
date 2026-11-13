@@ -7,11 +7,14 @@ API is the interface.
 ## What it is for
 
 Everyone in the challenge syncs their LinkedIn posts and each post's numbers (impressions,
-reactions, comments and so on) to Challenge Sync through a browser extension. Two endpoints:
+reactions, comments and so on) to Challenge Sync through a browser extension. Three endpoints:
 
 - `GET /api/v1/posts`: everyone's posts from a period, optionally filtered, plus who posted.
 - `GET /api/v1/members`: every account and when its extension last synced, plus a summary to
   spot a stall.
+- `GET /api/v1/stats`: the company overview for the past 7, 30 or 90 days: posts, people who
+  posted, impressions gained, a daily or weekly series, and the top posters and posts. The same
+  numbers as the website's landing page.
 
 Typical weekly questions:
 
@@ -35,7 +38,7 @@ The key can read everyone's post data, so treat it like a password. Revoke it on
 it is no longer needed, and it stops working at once. A key also stops working if the admin who
 created it is no longer an admin.
 
-## Authentication and errors (both endpoints)
+## Authentication and errors (every endpoint)
 
 ```
 Authorization: Bearer csk_...
@@ -46,6 +49,7 @@ and are refused. Every error is JSON, `{"error": "message"}`:
 
 - `401`: missing, wrong or revoked key.
 - `400`: a parameter is not valid. The message says which.
+- `404`: only from `/api/v1/stats` with a `memberId` that does not exist.
 
 ## GET /api/v1/posts
 
@@ -274,6 +278,108 @@ longer sync, so counting them would look like a stall.
 `member_id,display_name,public_identifier,profile_url,linked,last_synced_at_utc,post_count,newest_post_at_utc,created_at_utc`,
 using the same CSV conventions as above.
 
+## GET /api/v1/stats
+
+```
+GET https://social-challenge.enzo.health/api/v1/stats?days=7&timezone=-07:00
+```
+
+The company overview the website shows on its landing page, for the past `days` days (today
+included), each number next to the same number for the `days` days just before.
+
+### Parameters
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `days` | `7` | `7`, `30` or `90`. Anything else is a `400`. |
+| `timezone` | `+00:00` | Fixed UTC offset the days are read in, as for `/api/v1/posts`: `-07:00` for Mountain standard time, `-06:00` in summer. |
+| `memberId` | none | Also return this member's own share of every number as `you` (ids come from `/api/v1/members`). Without it `you` is `null`. |
+
+### What the numbers mean
+
+- **posts**: original posts published in the period (reshares are never counted).
+- **people**: how many different people published those posts; `activeMembers` is every
+  account that has not been deleted.
+- **impressions**: impressions **gained** during the period by every original post, whenever it
+  was published, not the totals of the posts published in the period. For each post: the last
+  number read before the period ended, minus the last number read before it began (0 if the post
+  was first read during the period), never below 0. Posts published more than 45 days before the
+  period began are left out: the extension stops re-reading a post 45 days after it went up.
+- **outOfNetworkImpressions** and **engagement** (reactions plus comments) are gained the same way.
+- `previous` is the same number for the period just before; `change` is
+  `(value - previous) / previous` (0.12 means +12%), or `null` when `previous` is 0.
+- `series` has one entry per day for 7 and 30 days and per week for 90 days (the last week is
+  6 days). Each column adds up to the headline number. A gain is counted on the day the reading
+  that showed it was taken, so a quiet day in the extension means a bigger next day.
+- Deleted accounts still count in every number (a past week does not change when someone
+  leaves), but in `topPosters` and `topPosts` they are named `"Former member"` with
+  `memberId: null`.
+- `sync.stale` is `true` when nobody has synced for more than two days: the numbers have
+  stopped moving, not dropped to zero.
+
+### JSON response
+
+Values below are made up.
+
+```json
+{
+  "period": {
+    "days": 7, "bucket": "day",
+    "since": "2026-11-06T00:00:00-07:00", "until": "2026-11-12T23:59:59-07:00",
+    "timezone": "-07:00", "startUnix": 1793948400, "endUnix": 1794553200,
+    "previousStartUnix": 1793343600
+  },
+  "company": {
+    "posts": { "value": 23, "previous": 18, "change": 0.2778 },
+    "people": { "value": 14, "previous": 12, "change": 0.1667 },
+    "activeMembers": 61,
+    "impressions": { "value": 48210, "previous": 39900, "change": 0.2083 },
+    "outOfNetworkImpressions": { "value": 17400, "previous": 0, "change": null },
+    "engagement": { "value": 1312, "previous": 1450, "change": -0.0952 }
+  },
+  "you": {
+    "memberId": 14, "displayName": "Ada Ortiz", "posted": true, "hasSynced": true,
+    "posts": { "value": 3, "previous": 1, "change": 2.0 },
+    "impressions": { "value": 9120, "previous": 4000, "change": 1.28 },
+    "outOfNetworkImpressions": { "value": 4250, "previous": 0, "change": null },
+    "engagement": { "value": 165, "previous": 80, "change": 1.0625 },
+    "shareOfPosts": 0.1304, "shareOfImpressions": 0.1892,
+    "shareOfOutOfNetworkImpressions": 0.2443, "shareOfEngagement": 0.1258,
+    "rank": 2, "posterCount": 14
+  },
+  "series": [
+    {
+      "start": "2026-11-06T00:00:00-07:00", "startUnix": 1793948400, "days": 1,
+      "company": { "posts": 4, "impressions": 6100, "outOfNetworkImpressions": 2010, "engagement": 190 },
+      "you": { "posts": 1, "impressions": 800, "outOfNetworkImpressions": 300, "engagement": 21 }
+    }
+  ],
+  "topPosters": [
+    { "rank": 1, "memberId": 20, "displayName": "Ben Cho", "formerMember": false, "isYou": false,
+      "posts": 4, "impressionsGained": 5300 },
+    { "rank": 2, "memberId": 14, "displayName": "Ada Ortiz", "formerMember": false, "isYou": true,
+      "posts": 3, "impressionsGained": 9120 },
+    { "rank": 3, "memberId": null, "displayName": "Former member", "formerMember": true, "isYou": false,
+      "posts": 3, "impressionsGained": 7000 }
+  ],
+  "topPosts": [
+    { "postId": 812, "memberId": 14, "authorName": "Ada Ortiz", "formerMember": false, "isYou": true,
+      "postUrl": "https://www.linkedin.com/feed/update/urn:li:activity:7392000000000000000/",
+      "firstLine": "Three things I learned shipping prior auth at Enzo this year...",
+      "postedAt": "2026-11-10T16:00:00Z", "postedAtUnix": 1794326400,
+      "impressionsGained": 6400, "impressions": 9120 }
+  ],
+  "sync": { "lastSyncAt": "2026-11-12T15:02:11Z", "lastSyncAtUnix": 1794500531, "stale": false }
+}
+```
+
+- `series[].you` and `isYou` refer to the `memberId` asked for; without one they are `null` and
+  `false`.
+- `topPosters`: up to 10 people, most posts first, then most impressions gained (on all their
+  posts, not only the new ones). `you.rank` is the same order over everyone who posted.
+- `topPosts`: up to 10 posts that gained the most impressions in the period, whenever published.
+  `impressions` is the post's latest known total.
+
 ## Examples
 
 Set the key once:
@@ -323,6 +429,19 @@ curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" "$BASE/api/v1/members" \
   | jq -r --argjson cutoff "$(( $(date +%s) - 2*86400 ))" \
       '.members[] | select(.lastSyncedAtUnix == null or .lastSyncedAtUnix < $cutoff)
        | "\(.displayName)\t\(.lastSyncedAt // "never")"'
+```
+
+This week in numbers, compared with last week, in Mountain time:
+
+```sh
+curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" "$BASE/api/v1/stats?timezone=-07:00" \
+  | jq '.company | {posts, people, impressions}'
+```
+
+One person's share over the past 30 days:
+
+```sh
+curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" "$BASE/api/v1/stats?days=30&memberId=14" | jq .you
 ```
 
 Is syncing stalled? Read `.sync.newestSyncAt`:

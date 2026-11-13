@@ -2,7 +2,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{AdminOverview, admin_overview, require_member};
+use linkedin_challenge_server::dto::{AdminOverview, admin_overview, require_challenge_user};
 use linkedin_challenge_server::web::ApiError;
 use toasty::Db;
 
@@ -11,6 +11,6 @@ pub async fn get(
     Extension(mut db): Extension<Db>,
     headers: HeaderMap,
 ) -> Result<Json<AdminOverview>, ApiError> {
-    let admin = require_member(&mut db, &headers).await?;
+    let admin = require_challenge_user(&mut db, &headers).await?;
     Ok(Json(admin_overview(&mut db, &admin).await?))
 }

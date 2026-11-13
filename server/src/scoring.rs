@@ -441,6 +441,17 @@ impl Dataset {
     pub fn latest_known(&self, post_id: i64, field: impl Fn(&PostSnapshot) -> Option<i64>) -> Option<i64> {
         self.snapshots(post_id).iter().rev().find_map(field)
     }
+    /// [`Dataset::latest_known`] as it stood just before `before`: the newest value of one number
+    /// among readings taken strictly earlier. Unchanged readings are not stored, so this is the
+    /// way to ask "what was it at time T" — there need not be a reading on any given day.
+    pub fn latest_known_before(
+        &self,
+        post_id: i64,
+        before: i64,
+        field: impl Fn(&PostSnapshot) -> Option<i64>,
+    ) -> Option<i64> {
+        self.snapshots(post_id).iter().rev().filter(|s| s.captured_at < before).find_map(field)
+    }
     pub fn latest_snapshot_before(&self, post_id: i64, before: i64) -> Option<&PostSnapshot> {
         self.snapshots(post_id).iter().rev().find(|s| s.captured_at <= before)
     }

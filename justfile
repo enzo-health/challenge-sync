@@ -90,6 +90,7 @@ check:
     python3 server/scripts/test-reports-e2e.py
     python3 server/scripts/test-delete-member-e2e.py
     python3 server/scripts/test-snapshot-dedupe-e2e.py
+    python3 server/scripts/test-stats-e2e.py
     node scripts/test-extension-e2e.mjs
     node scripts/test-join-flow-e2e.mjs
     git diff --check
@@ -140,6 +141,12 @@ test-delete-member-e2e:
 test-snapshot-dedupe-e2e:
     cd server && cargo build --bin linkedin-challenge-server
     python3 server/scripts/test-snapshot-dedupe-e2e.py
+
+# Verify the company stats overview (posts, people, impressions gained, buckets, your share) and
+# that challenges are admin-only, on an isolated database.
+test-stats-e2e:
+    cd server && cargo build --bin linkedin-challenge-server
+    python3 server/scripts/test-stats-e2e.py
 
 # Exercise password auth against a real server and isolated temporary database.
 test-auth-e2e:

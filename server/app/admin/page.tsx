@@ -99,7 +99,7 @@ export default function AdminOverviewPage() {
             </div>
           )}
           <p className="small muted">
-            The <a href="/">leaderboard</a> has the full board and the organiser strip.
+            The <a href={current ? `/challenges/${current.id}` : "/challenges"}>leaderboard</a> has the full board and the organiser strip.
           </p>
         </>
       )}

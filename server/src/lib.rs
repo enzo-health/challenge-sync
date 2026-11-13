@@ -9,5 +9,6 @@ pub mod models;
 pub mod reports;
 pub mod scoring;
 pub mod seed;
+pub mod stats;
 pub mod util;
 pub mod web;

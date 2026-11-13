@@ -1,8 +1,9 @@
-//! Challenge-management pages are available to every signed-in user; API handlers enforce that
-//! mutations target challenges the user created.
+//! Guard for `/admin/**` — a challenge organiser's overview. Open only to those challenges are
+//! open to (`auth::can_use_challenges`); anyone else goes to `/`. API handlers still check that
+//! changes target challenges the user owns.
 
 use axum::response::{IntoResponse, Redirect};
-use linkedin_challenge_server::auth::current_member;
+use linkedin_challenge_server::auth::{can_use_challenges, current_member};
 use nextrs::conventions::MiddlewareResult;
 use toasty::Db;
 
@@ -14,7 +15,7 @@ pub async fn handle(req: http::Request<axum::body::Body>) -> MiddlewareResult {
     };
 
     let mut db = db;
-    if current_member(&mut db, req.headers()).await.is_none() {
+    if !current_member(&mut db, req.headers()).await.is_some_and(|member| can_use_challenges(&member)) {
         return MiddlewareResult::response(Redirect::to("/").into_response());
     }
     MiddlewareResult::next(req)

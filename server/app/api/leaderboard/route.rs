@@ -3,7 +3,7 @@
 use axum::extract::Query;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{Leaderboard, leaderboard, require_member};
+use linkedin_challenge_server::dto::{Leaderboard, leaderboard, require_challenge_user};
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -23,6 +23,6 @@ pub async fn get(
     headers: HeaderMap,
     Query(q): Query<LeaderboardQuery>,
 ) -> Result<Json<Leaderboard>, ApiError> {
-    let member = require_member(&mut db, &headers).await?;
+    let member = require_challenge_user(&mut db, &headers).await?;
     Ok(Json(leaderboard(&mut db, &member, q.challenge_id).await?))
 }

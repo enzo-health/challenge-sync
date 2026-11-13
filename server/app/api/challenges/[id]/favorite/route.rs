@@ -3,7 +3,7 @@
 use axum::extract::Path;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::require_member;
+use linkedin_challenge_server::dto::require_challenge_user;
 use linkedin_challenge_server::models::ChallengeMembership;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ pub async fn put(
     Path(id): Path<i64>,
     Json(req): Json<FavoriteChallengeRequest>,
 ) -> Result<Json<FavoriteChallengeResponse>, ApiError> {
-    let user = require_member(&mut db, &headers).await?;
+    let user = require_challenge_user(&mut db, &headers).await?;
     let membership = ChallengeMembership::filter(
         ChallengeMembership::fields().member_id().eq(user.id),
     ).exec(&mut db).await?.into_iter()

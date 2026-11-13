@@ -78,7 +78,7 @@ pub fn not_found_response(detail: &str) -> Response {
 <main>
 <h1>Not found</h1>
 <p class="lede">{detail}</p>
-<p><a class="btn" href="/">Back to your challenges</a></p>
+<p><a class="btn" href="/">Back to the overview</a></p>
 </main>
 </body>
 </html>"#

@@ -34,7 +34,7 @@ export default function PasswordLogin() {
                 onSuccess: (res) => {
                   if (res.status === 200) {
                     // Hard load: the session cookie is new, so every cached query is stale.
-                    // Everyone lands on their org's leaderboard; admins get the dashboard link
+                    // Everyone lands on the company overview; admins get their extra pages
                     // in the nav rather than a different destination.
                     window.location.href = "/";
                   } else {

@@ -27,7 +27,7 @@ export default function Join() {
             Install the extension
           </a>{" "}
           <a className="btn" href="/">
-            Go to the leaderboard
+            Go to the overview
           </a>
         </p>
       </>

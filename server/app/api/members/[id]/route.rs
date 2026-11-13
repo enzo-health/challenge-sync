@@ -1,11 +1,12 @@
 //! `GET /api/members/{id}` — one member's posts and analytics for a challenge window.
-//! Serves both "my results" (the viewer's own id) and the drill-in from a leaderboard row.
+//! The drill-in from a leaderboard row ("My posts" reads `/api/me/posts` instead), so it is a
+//! challenge API and open only to those challenges are open to (`auth::can_use_challenges`).
 //! Another user's data is visible only through a challenge both users joined.
 
 use axum::extract::{Path, Query};
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{MemberDetail, member_detail, require_member};
+use linkedin_challenge_server::dto::{MemberDetail, member_detail, require_challenge_user};
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -34,7 +35,7 @@ pub async fn get(
     Path(id): Path<i64>,
     Query(q): Query<MemberDetailQuery>,
 ) -> Result<Json<MemberDetail>, ApiError> {
-    let member = require_member(&mut db, &headers).await?;
+    let member = require_challenge_user(&mut db, &headers).await?;
     let sort = q.sort.as_deref().unwrap_or("newest");
     if !["newest", "oldest", "impressions", "reactions", "comments", "reposts", "sends", "saves"]
         .contains(&sort)

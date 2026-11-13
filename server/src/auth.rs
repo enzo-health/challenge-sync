@@ -223,6 +223,19 @@ pub async fn current_system_admin(db: &mut Db, headers: &HeaderMap) -> Option<Me
         .filter(|m| m.is_system_admin)
 }
 
+/// Whether this member may see challenges at all: boards, challenge pages, creating and managing
+/// challenges, and challenge invitations.
+///
+/// For now that is system admins only. Regular members see their own posts and the company stats
+/// overview, nothing about challenges. This is the one rule: the challenge page guards
+/// (`app/{challenges,admin,members,rules}/middleware.rs`) and `dto::require_challenge_user`, which
+/// every challenge API goes through, both ask it. Memberships, invites and auto-enrolment on join
+/// are left exactly as they were, so letting members back in later is a change here and nothing
+/// is lost in between.
+pub fn can_use_challenges(member: &Member) -> bool {
+    member.is_system_admin
+}
+
 /// Start a session for a member: persist the hash, return the `Set-Cookie` value for the response.
 pub async fn establish_session(db: &mut Db, member_id: i64) -> toasty::Result<String> {
     establish_session_as(db, member_id, None).await

@@ -453,7 +453,7 @@ export function PersonalPosts({ displayName }: { displayName: string }) {
         <strong>{data.data.followerCount == null ? "Followers not synced yet" : `${fmtInt(data.data.followerCount)} followers`}</strong>
         {data.data.followerCount != null && " · Latest synced count"}
       </p>
-      <p className="lede">Your LinkedIn data belongs to you. Challenges can read it only after you join.</p>
+      <p className="lede">Your LinkedIn data belongs to you.</p>
       <MediaToggle checked={showMedia} onChange={setShowMedia} />
       <PostExplorer
         posts={data.data.posts}

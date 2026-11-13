@@ -120,7 +120,12 @@ with tempfile.TemporaryDirectory(prefix='delete-member-e2e-') as directory:
         ids = {m['email']: m['id'] for m in overview['members'] if m['email']}
         admin_id, owner_id, ada_id, ben_id = (ids['sysadmin@demo.test'], ids['admin@demo.test'],
                                               ids['ada@demo.test'], ids['ben@demo.test'])
-        board = ada.request('/api/leaderboard')
+        # Challenges are open to system admins only for now (`auth::can_use_challenges`), so the
+        # challenge's owner is made an admin and the board is read through them. Ada stays an
+        # ordinary member: she is the non-admin the refusals below are tried with.
+        admin.request(f'/api/system/members/{owner_id}/admin', {'isAdmin': True}, method='PUT')
+        ada.request('/api/leaderboard', status=401)
+        board = owner.request('/api/leaderboard')
         challenge_id = board['competition']['id']
         today = dt.datetime.now(dt.timezone.utc).date()
         window = {'since': (today - dt.timedelta(days=60)).isoformat(), 'until': today.isoformat()}
@@ -131,7 +136,7 @@ with tempfile.TemporaryDirectory(prefix='delete-member-e2e-') as directory:
 
         def standings():
             return {row['memberId']: row for row in
-                    ada.request(f'/api/leaderboard?challengeId={challenge_id}')['standings']}
+                    owner.request(f'/api/leaderboard?challengeId={challenge_id}')['standings']}
 
         def overview_rows():
             return {m['id']: m for m in admin.request('/api/system/overview')['members']}
@@ -290,7 +295,7 @@ with tempfile.TemporaryDirectory(prefix='delete-member-e2e-') as directory:
               dora_id not in active_overview_ids() and rows[dora_id]['deletedAt'] is not None
               and rows[dora_id]['isSystemAdmin'] is False and rows[eve_id]['deletedAt'] is not None)
         check('they are gone from the leaderboard standings', dora_id not in standings() and eve_id not in standings())
-        code, _, _ = ada.raw(f'/api/members/{dora_id}?challengeId={challenge_id}')
+        code, _, _ = owner.raw(f'/api/members/{dora_id}?challengeId={challenge_id}')
         check('their member detail page is a 404', code == 404)
         after_members = members_api()
         check('they are gone from /api/v1/members and its sync summary',

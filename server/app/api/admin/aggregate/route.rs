@@ -4,7 +4,7 @@
 use axum::extract::Query;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{Aggregate, competition_aggregate, require_member};
+use linkedin_challenge_server::dto::{Aggregate, competition_aggregate, require_challenge_user};
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -22,7 +22,7 @@ pub async fn get(
     headers: HeaderMap,
     Query(q): Query<AggregateQuery>,
 ) -> Result<Json<Aggregate>, ApiError> {
-    let admin = require_member(&mut db, &headers).await?;
+    let admin = require_challenge_user(&mut db, &headers).await?;
     Ok(Json(
         competition_aggregate(&mut db, &admin, q.challenge_id).await?,
     ))

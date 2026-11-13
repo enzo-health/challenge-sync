@@ -11,7 +11,7 @@ export default function NotFound() {
       </p>
       <p>
         <a className="btn" href="/">
-          Back to your challenges
+          Back to the overview
         </a>
       </p>
     </>

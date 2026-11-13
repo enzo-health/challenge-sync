@@ -100,6 +100,11 @@ with tempfile.TemporaryDirectory(prefix='snapshot-dedupe-e2e-') as directory:
         session = next(c.value for c in me.jar if c.name == 'session')
         token = me.request('/api/auth/device/session', {'sessionToken': session})['syncToken']
         mid = me.request('/api/auth/me')['memberId']
+        # Challenges are open to system admins only for now (`auth::can_use_challenges`), and this
+        # test reads its scores through two challenges, so the account is made an admin.
+        operator = Client()
+        operator.request('/api/auth/login', {'email': 'sysadmin@demo.test', 'password': 'demopassword'})
+        operator.request(f'/api/system/members/{mid}/admin', {'isAdmin': True}, method='PUT')
         today = dt.datetime.now(dt.timezone.utc).date()
         current = me.request('/api/challenges', {'name': 'Dedupe current', 'start': str(today - dt.timedelta(days=2)), 'end': str(today + dt.timedelta(days=2)), 'config': {}})['id']
         past = me.request('/api/challenges', {'name': 'Dedupe past', 'start': str(today - dt.timedelta(days=20)), 'end': str(today - dt.timedelta(days=10)), 'config': {}})['id']

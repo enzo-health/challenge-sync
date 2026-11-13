@@ -5,18 +5,21 @@ import { EXTENSION_STORE_URL } from "../../components/links";
 
 export default function AccountPage() {
   const me = useGetMe();
-  const { data, isLoading, refetch } = useGetMyInvites();
+  const account = me.data?.status === 200 ? me.data.data : undefined;
+  // Challenges, and so their invitations, are open to admins only for now
+  // (`auth::can_use_challenges`); the invitations API refuses everyone else.
+  const challenges = Boolean(account?.isSystemAdmin);
+  const { data, isLoading, refetch } = useGetMyInvites({ query: { enabled: challenges } });
   const accept = useAcceptChallengeInvite();
   const queryClient = useQueryClient();
-  const account = me.data?.status === 200 ? me.data.data : undefined;
 
-  if (isLoading || me.isLoading) return <div className="spinner">Loading account…</div>;
-  if (!account?.signedIn || data?.status !== 200) return <div className="empty">Your session expired. <a href="/auth/login">Log in again</a>.</div>;
+  if (me.isLoading || (challenges && isLoading)) return <div className="spinner">Loading account…</div>;
+  if (!account?.signedIn || (challenges && data?.status !== 200)) return <div className="empty">Your session expired. <a href="/auth/login">Log in again</a>.</div>;
 
   return (
     <>
       <h1>{account.displayName}</h1>
-      <p className="lede">Your account and challenge invitations.</p>
+      <p className="lede">{challenges ? "Your account and challenge invitations." : "Your account."}</p>
 
       <h2>Syncing</h2>
       <p>
@@ -30,6 +33,7 @@ export default function AccountPage() {
         </a>
       </p>
 
+      {challenges && data?.status === 200 && <>
       <h2>Challenge invitations</h2>
       {data.data.invites.length === 0 ? (
         <div className="empty">You don&rsquo;t have any pending invitations.</div>
@@ -57,6 +61,7 @@ export default function AccountPage() {
           </button>
         </div>
       ))}
+      </>}
     </>
   );
 }

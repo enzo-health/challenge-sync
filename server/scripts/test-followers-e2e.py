@@ -74,9 +74,19 @@ with tempfile.TemporaryDirectory(prefix='followers-e2e-') as directory:
         user = Client('ada@demo.test')
         admin = Client('sysadmin@demo.test')
         owner = Client('admin@demo.test')
+        uid = user.request('/api/auth/me')['memberId']
+        # Challenges are open to system admins only for now (`auth::can_use_challenges`), so the
+        # people this test drives through a challenge are made admins first. Ada is checked as an
+        # ordinary member before that.
+        user.request('/api/system/overview', status=401)
+        user.request('/api/challenges', status=401)
+        check('an ordinary member cannot read the system panel or challenges', True)
+        def make_admin(client):
+            admin.request(f"/api/system/members/{client.request('/api/auth/me')['memberId']}/admin", {'isAdmin': True}, method='PUT')
+        make_admin(owner)
+        make_admin(user)
         challenge = next(c for c in owner.request('/api/challenges')['challenges'] if c['name'] == 'Autumn Posting Sprint')
         cid = challenge['id']
-        uid = user.request('/api/auth/me')['memberId']
         def detail():
             return user.request(f'/api/members/{uid}?challengeId={cid}')
         def system_count():
@@ -85,11 +95,10 @@ with tempfile.TemporaryDirectory(prefix='followers-e2e-') as directory:
             user.request('/api/me/posts')['followerCount'] == detail()['followerCount'] == system_count() == 4460)
         board = user.request(f'/api/leaderboard?challengeId={cid}')
         teammate = next(s for s in board['standings'] if s['memberId'] != uid)
-        check('ordinary participant can inspect a teammate in the same challenge',
+        check('a participant (not the owner) can inspect a teammate in the same challenge',
             user.request(f"/api/members/{teammate['memberId']}?challengeId={cid}")['standing'] == teammate)
-        user.request('/api/system/overview', status=401)
         Client().request(f'/api/members/{uid}?challengeId={cid}', status=401)
-        check('system users restricted and anonymous member reads rejected', True)
+        check('anonymous member reads rejected', True)
         user.request(f"/api/members/{teammate['memberId']}", status=404)
         check('another member requires explicit shared challenge context', True)
         check('never-synced counts remain null', next(m['followerCount'] for m in admin.request('/api/system/overview')['members'] if m['displayName'] == 'Demo Admin') is None)
@@ -109,6 +118,7 @@ with tempfile.TemporaryDirectory(prefix='followers-e2e-') as directory:
         fixture = Client()
         fixture.request('/api/auth/signup', {'name': 'Follower E2E', 'email': 'followers-e2e@enzo.health', 'password': 'FollowerE2E!123'})
         fid = fixture.request('/api/auth/me')['memberId']
+        make_admin(fixture)
         today = dt.datetime.now(dt.timezone.utc).date()
         start, end = str(today - dt.timedelta(days=2)), str(today + dt.timedelta(days=2))
         fc = fixture.request('/api/challenges', {'name': 'Follower adjustment evidence', 'start': start, 'end': end, 'config': {}})['id']

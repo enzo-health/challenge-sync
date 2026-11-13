@@ -307,6 +307,17 @@ pub async fn require_member(db: &mut Db, headers: &http::HeaderMap) -> ApiResult
         .ok_or_else(|| ApiError::unauthorized("sign-in required"))
 }
 
+/// The signed-in member, if challenges are open to them (see `auth::can_use_challenges`). Every
+/// challenge API checks this instead of `require_member`. Refused with a 401, as the system
+/// routes refuse a non-admin.
+pub async fn require_challenge_user(db: &mut Db, headers: &http::HeaderMap) -> ApiResult<Member> {
+    let member = require_member(db, headers).await?;
+    if !crate::auth::can_use_challenges(&member) {
+        return Err(ApiError::unauthorized("challenges are open to admins only for now"));
+    }
+    Ok(member)
+}
+
 /// Whether this user has management rights for one challenge.
 pub async fn is_challenge_owner(db: &mut Db, member_id: i64, challenge_id: i64) -> ApiResult<bool> {
     Ok(ChallengeMembership::filter(
@@ -326,7 +337,7 @@ pub async fn require_challenge_owner(
     headers: &http::HeaderMap,
     challenge_id: i64,
 ) -> ApiResult<(Member, Competition)> {
-    let member = require_member(db, headers).await?;
+    let member = require_challenge_user(db, headers).await?;
     if !is_challenge_owner(db, member.id, challenge_id).await? {
         return Err(ApiError::not_found("challenge not found"));
     }

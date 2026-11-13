@@ -27,7 +27,10 @@ overwrites data synced from LinkedIn.
 Everything requires a session, so start at `/login`. The demo seed creates accounts you can use
 (password `demopassword` for all of them):
 
-- `admin@demo.test` — admin: sees the dashboard as well as the leaderboard
+- `sysadmin@demo.test` — system admin: All users, Post reports, and (for now, admins only)
+  challenges and their leaderboards
+- `admin@demo.test` — owns the demo challenge, but is not a system admin, so like everyone else
+  it sees only the Overview and My posts until challenges are opened to members again
 - `ada@demo.test`, `ben@demo.test`, `carmen@demo.test`, `dev@demo.test`, `erin@demo.test` —
   participants
 
@@ -116,6 +119,8 @@ src/                  domain layer — a lib crate, because src/bin/dump-openapi
   scoring.rs          ScoringConfig + compute_standings (derived, weekly buckets, top-N/week,
                       follower normalization, profile points) + active_competition
   dto.rs              wire shapes + the reads behind them (leaderboard, member detail, aggregate)
+  reports.rs          the admin post report and /api/v1/posts, /api/v1/members
+  stats.rs            the company stats overview (landing page, /api/v1/stats)
   web.rs              ApiError — one JSON error shape for every route
   auth.rs             Argon2 passwords, session cookie, email lookup, bearer token (extension)
   util.rs             unix time, ISO/date parsing, invite codes, bearer tokens, a small SHA-256
@@ -125,7 +130,7 @@ src/                  domain layer — a lib crate, because src/bin/dump-openapi
 app/                  the router — every directory is a URL segment
   middleware.rs       root guard: signed out sees only the sign-in surfaces
   layout.tsx          root chrome, stays mounted across soft navigation
-  page.tsx            / landing            (+ prefetch.rs)
+  page.tsx            / landing: the company stats overview (sidebar "Overview")
   login/ join/ signup/  sign in, redeem an invite, create an org
   orgs/[slug]/        leaderboard + scoring explanation          (+ prefetch.rs)
     members/[id]/     a participant's posts by week              (+ prefetch.rs)

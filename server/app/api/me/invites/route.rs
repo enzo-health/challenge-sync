@@ -2,7 +2,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{challenges_by_ids, require_member};
+use linkedin_challenge_server::dto::{challenges_by_ids, require_challenge_user};
 use std::collections::HashMap;
 use linkedin_challenge_server::models::{Competition, Invite, Member};
 use linkedin_challenge_server::web::ApiError;
@@ -30,7 +30,7 @@ pub async fn get(
     Extension(mut db): Extension<Db>,
     headers: HeaderMap,
 ) -> Result<Json<MyInvitesResponse>, ApiError> {
-    let member = require_member(&mut db, &headers).await?;
+    let member = require_challenge_user(&mut db, &headers).await?;
     let email = member.email.as_deref().unwrap_or_default().to_lowercase();
     let invites: Vec<Invite> = Invite::all().exec(&mut db).await?.into_iter()
         .filter(|invite| !invite.redeemed && invite.email.as_deref() == Some(email.as_str()))

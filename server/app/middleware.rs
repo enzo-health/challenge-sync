@@ -26,6 +26,7 @@ fn is_public(path: &str) -> bool {
         // check the key (or an admin session) themselves.
         || path == "/api/v1/posts"
         || path == "/api/v1/members"
+        || path == "/api/v1/stats"
         // Bundles, stylesheet, favicons. Blocking these would break the login page itself.
         || path.starts_with("/dist/")
         || path.starts_with("/favicon.")
