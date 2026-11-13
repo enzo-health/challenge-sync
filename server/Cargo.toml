@@ -46,3 +46,12 @@ serde_json = "1"
 utoipa = "5"
 rand = "0.8"
 argon2 = "0.5"
+
+# Password hashing is deliberately slow, and unoptimized it is slower still: every e2e test server
+# (debug build) hashes the seeded demo passwords at startup and on each sign-in. Optimizing just
+# these crates in dev builds makes that ~10x faster without changing what they compute.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

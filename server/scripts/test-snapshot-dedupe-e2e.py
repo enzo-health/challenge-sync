@@ -19,6 +19,7 @@ import contextlib
 import datetime as dt
 import http.cookiejar
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -114,12 +115,17 @@ with tempfile.TemporaryDirectory(prefix='snapshot-dedupe-e2e-') as directory:
         def post(urn, created, **metrics):
             return {'urn': urn, 'permalink': 'https://www.linkedin.com/feed/', 'createdAt': created,
                     'textPreview': 'e2e', 'metrics': metrics, 'comments': []}
-        def sync(posts):
+        def sync(posts, last=False):
             # No follower count, so engagement is unscaled and easy to check by hand.
             result = me.request('/api/sync', {'profile': {'followerCount': None}, 'posts': posts}, token=token)
             # Scoring orders readings by captured_at to the second; distinct seconds keep the rows
-            # this test puts back later in the order a real server would have written them.
-            time.sleep(1.1)
+            # this test puts back later in the order a real server would have written them, as a
+            # real member never syncs twice in one second. The server stamped this sync no later
+            # than now, on this machine's clock, so waiting for the next whole second is enough;
+            # nothing follows the last sync, so it doesn't wait at all.
+            if not last:
+                now = time.time()
+                time.sleep(math.floor(now) + 1 - now + 0.01)
             return result
         def timeless(value):
             # `asOf` and `progress` follow the wall clock, not the data.
@@ -238,7 +244,7 @@ with tempfile.TemporaryDirectory(prefix='snapshot-dedupe-e2e-') as directory:
         check('scores after the cleanup equal scores before it, in both challenges', cleaned == full)
 
         # --- syncing on after the cleanup --------------------------------------------------------
-        again = sync([post(a, at(0, 1), **a2), post(b, at(0, 2), **b1), post(old, at(15), **old_now)])
+        again = sync([post(a, at(0, 1), **a2), post(b, at(0, 2), **b1), post(old, at(15), **old_now)], last=True)
         check('a repeat after the cleanup is still recognised', again['postsIngested'] == 3)
         check('and leaves every score where it was', views() == cleaned)
         stop()

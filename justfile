@@ -65,36 +65,14 @@ deploy: deploy-check
 deploy-preview: deploy-check
     cd server && ./scripts/deploy-prebuilt.sh --preview
 
-# Compile and check the server and extension without requiring a live browser session.
+# Build once, then run every check at the same time where they can't collide (scripts/check.sh):
+# typecheck, cargo test, syntax checks, the refresh-window unit test, and each server e2e on its
+# own free port and temporary database, all alongside the two browser tests, which run one after
+# the other on the signed-in dev profile against the existing extension/dist/unpacked build. The
+# join-flow browser test (two full live LinkedIn syncs, ~2.5 minutes) sets the total. Prints one
+# line per step with its time; on failure, the failing step's output.
 check:
-    cd server && npm run client:ensure
-    cd server && cargo build
-    cd server && npm run typecheck
-    cd server && cargo test
-    node --check extension/api.js
-    node --check extension/background.js
-    node --check extension/bridge.js
-    node --check extension/config.js
-    node --check extension/linkedin.js
-    node --check extension/popup.js
-    node --check extension/refresh.js
-    node --check extension/diagnostics.js
-    node --check extension/storage.js
-    node --check extension/sync.js
-    bash -n extension/build.sh
-    node scripts/test-refresh-window.mjs
-    server/scripts/test-auth-e2e.sh
-    python3 server/scripts/test-followers-e2e.py
-    python3 server/scripts/test-sync-devices-e2e.py
-    python3 server/scripts/test-extension-join-e2e.py
-    python3 server/scripts/test-reports-e2e.py
-    python3 server/scripts/test-delete-member-e2e.py
-    python3 server/scripts/test-snapshot-dedupe-e2e.py
-    python3 server/scripts/test-stats-e2e.py
-    python3 server/scripts/test-sync-banner-e2e.py
-    node scripts/test-extension-e2e.mjs
-    node scripts/test-join-flow-e2e.mjs
-    git diff --check
+    scripts/check.sh
 
 # LinkedIn sessions expire after a couple of weeks; then test-extension-e2e fails NOT_LOGGED_IN.
 # Opens a visible window on the e2e profile at the login page: sign in, then close the window.
