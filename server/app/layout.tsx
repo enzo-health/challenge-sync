@@ -10,6 +10,7 @@ import { useGetChallenges, useGetMe, useLogout, useStopImpersonation } from "@li
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { SyncPausedBanner } from "../components/sync-paused";
 import { HostBlockedBanner, installHostBlockDetection, useHostBlockRetryPolicy } from "../components/host-block";
+import { AppSpeedInsights } from "../components/speed-insights";
 
 // Before any query or mutation runs: a request our host's firewall stopped becomes one
 // recognisable error app-wide (see components/host-block.tsx).
@@ -207,6 +208,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </main>
         </div>
       </NuqsAdapter>
+      <AppSpeedInsights />
     </>
   );
 }

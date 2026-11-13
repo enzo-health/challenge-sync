@@ -22,6 +22,7 @@
     "@neon/env": "^2.1.3",
     "@tanstack/react-query": "^5.62.0",
     "@tanstack/react-router": "^1.87.0",
+    "@vercel/speed-insights": "2.0.0",
     "nuqs": "^2.10.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
