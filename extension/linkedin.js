@@ -9,6 +9,7 @@
 // each collector returns whatever it can and degrades to null rather than throwing.
 import { LINKEDIN_ORIGIN, REQUEST_DELAY_MS, MAX_POSTS } from "./config.js";
 import { planRefresh, recordedUrnsFor } from "./refresh.js";
+import { LinkedInError } from "./errors.js";
 
 const VOYAGER = `${LINKEDIN_ORIGIN}/voyager/api`;
 
@@ -20,14 +21,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function csrfToken() {
   const cookie = await chrome.cookies.get({ url: LINKEDIN_ORIGIN, name: "JSESSIONID" });
   if (!cookie || !cookie.value) {
-    throw new Error("NOT_LOGGED_IN"); // no LinkedIn session in this browser
+    throw new LinkedInError("signed-out"); // no LinkedIn session in this browser
   }
   return cookie.value.replace(/"/g, "");
 }
 
+// LinkedIn's own failures, told apart from ours: no answer at all, "not signed in", another status.
+async function fetchLinkedIn(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    throw new LinkedInError("unreachable", { message: `LINKEDIN_UNREACHABLE: ${err?.message || err}` });
+  }
+}
+
 async function voyagerFetch(path) {
   const token = await csrfToken();
-  const res = await fetch(`${VOYAGER}${path}`, {
+  const res = await fetchLinkedIn(`${VOYAGER}${path}`, {
     method: "GET",
     credentials: "include", // send LinkedIn cookies
     headers: {
@@ -37,14 +47,14 @@ async function voyagerFetch(path) {
       accept: "application/vnd.linkedin.normalized+json+2.1",
     },
   });
-  if (res.status === 401 || res.status === 403) throw new Error("NOT_LOGGED_IN");
-  if (!res.ok) throw new Error(`VOYAGER_${res.status}`);
+  if (res.status === 401 || res.status === 403) throw new LinkedInError("signed-out", { status: res.status });
+  if (!res.ok) throw new LinkedInError("http", { status: res.status, message: `VOYAGER_${res.status}` });
   return res.json();
 }
 
 async function linkedinFetch(path, init = {}) {
   const token = await csrfToken();
-  const res = await fetch(`${LINKEDIN_ORIGIN}${path}`, {
+  const res = await fetchLinkedIn(`${LINKEDIN_ORIGIN}${path}`, {
     credentials: "include",
     ...init,
     headers: {
@@ -52,8 +62,8 @@ async function linkedinFetch(path, init = {}) {
       ...(init.headers || {}),
     },
   });
-  if (res.status === 401 || res.status === 403) throw new Error("NOT_LOGGED_IN");
-  if (!res.ok) throw new Error(`LINKEDIN_${res.status}`);
+  if (res.status === 401 || res.status === 403) throw new LinkedInError("signed-out", { status: res.status });
+  if (!res.ok) throw new LinkedInError("http", { status: res.status });
   return res;
 }
 

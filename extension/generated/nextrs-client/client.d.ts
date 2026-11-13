@@ -42,11 +42,40 @@ export interface Aggregate {
     totalReposts: number;
 }
 /**
+ * A machine-readable reason, on the refusals a client must tell apart (see `web::codes`).
+ */
+export type ApiErrorCode = string | null;
+/**
  * A JSON error body. Every API route returns this shape on failure, so the generated client
 and the extension can rely on `{ "error": "..." }` regardless of status.
+
+`code` is set on the refusals a client acts on (see [`codes`]). Clients decide on the code,
+never on the English `error` text, and treat a failure without a code as unexplained.
  */
 export interface ApiError {
+    /** A machine-readable reason, on the refusals a client must tell apart (see `web::codes`). */
+    code?: ApiErrorCode;
     error: string;
+}
+export interface ApiKeyList {
+    keys: ApiKeyRow[];
+}
+/**
+ * Name of the admin who created it, when they still exist.
+ */
+export type ApiKeyRowCreatedByName = string | null;
+/**
+ * Unix seconds of the last request made with it, or null if it has never been used.
+ */
+export type ApiKeyRowLastUsedAt = number | null;
+export interface ApiKeyRow {
+    createdAt: number;
+    /** Name of the admin who created it, when they still exist. */
+    createdByName: ApiKeyRowCreatedByName;
+    id: number;
+    /** Unix seconds of the last request made with it, or null if it has never been used. */
+    lastUsedAt: ApiKeyRowLastUsedAt;
+    name: string;
 }
 export interface ChallengeInvitesResponse {
     invites: InviteRow[];
@@ -99,6 +128,9 @@ export interface CompetitionInfo {
     name: string;
     startAt: number;
 }
+export interface CreateApiKeyRequest {
+    name: string;
+}
 export interface CreateChallengeRequest {
     config: ScoringConfig;
     end: string;
@@ -115,6 +147,43 @@ export interface CreateInvitesRequest {
 }
 export interface CreateInvitesResponse {
     codes: string[];
+}
+export interface CreatedApiKey {
+    createdAt: number;
+    id: number;
+    /** The key. It is not stored and cannot be shown again. */
+    key: string;
+    name: string;
+}
+export interface DeleteMemberResponse {
+    ok: boolean;
+}
+export type ExtensionIdentityFirstName = string | null;
+export type ExtensionIdentityLastName = string | null;
+export type ExtensionIdentityProfileUrl = string | null;
+export type ExtensionIdentityPublicIdentifier = string | null;
+export interface ExtensionIdentity {
+    firstName?: ExtensionIdentityFirstName;
+    lastName?: ExtensionIdentityLastName;
+    memberUrn: string;
+    profileUrl?: ExtensionIdentityProfileUrl;
+    publicIdentifier?: ExtensionIdentityPublicIdentifier;
+}
+/**
+ * The company join code, from the `join_code` cookie the join page sets.
+ */
+export type ExtensionJoinRequestJoinCode = string | null;
+export interface ExtensionJoinRequest {
+    /** The company join code, from the `join_code` cookie the join page sets. */
+    joinCode?: ExtensionJoinRequestJoinCode;
+    member: ExtensionIdentity;
+}
+export interface ExtensionJoinResponse {
+    /** True when this call created the account; false when it signed in to an existing one. */
+    created: boolean;
+    displayName: string;
+    memberId: number;
+    syncToken: string;
 }
 export interface FavoriteChallengeRequest {
     favorite: boolean;
@@ -139,6 +208,10 @@ export interface InviteRow {
     email?: InviteRowEmail;
     redeemed: boolean;
     role: string;
+}
+export interface JoinLinkResponse {
+    /** The new join code; the link is `/join/<code>`. */
+    joinCode: string;
 }
 export interface JoinRequest {
     email: string;
@@ -270,6 +343,11 @@ export type MeResponseDisplayName = string | null;
  * The system admin really driving this session, when it is an impersonation.
  */
 export type MeResponseImpersonatedBy = string | null;
+/**
+ * Unix seconds of this member's most recent sync from any device (newest profile snapshot),
+or null if they have never synced or nobody is signed in.
+ */
+export type MeResponseLastSyncAt = number | null;
 export type MeResponseMemberId = number | null;
 export interface MeResponse {
     displayName?: MeResponseDisplayName;
@@ -277,8 +355,14 @@ export interface MeResponse {
     impersonatedBy?: MeResponseImpersonatedBy;
     /** Whether this member operates the product — unlocks the System panel. */
     isSystemAdmin: boolean;
+    /** Unix seconds of this member's most recent sync from any device (newest profile snapshot),
+  or null if they have never synced or nobody is signed in. */
+    lastSyncAt: MeResponseLastSyncAt;
     memberId?: MeResponseMemberId;
     signedIn: boolean;
+    /** True when a signed-in member has never synced or last synced more than two days ago — most
+  likely Chrome has switched the extension off. Always false when signed out. */
+    syncStale: boolean;
 }
 export type MemberDetailCompetition = null | CompetitionInfo;
 export type MemberDetailFollowerCount = number | null;
@@ -313,6 +397,10 @@ export interface MemberInfo {
     memberUrn: string;
     profileUrl?: MemberInfoProfileUrl;
     publicIdentifier?: MemberInfoPublicIdentifier;
+}
+export interface MemberReport {
+    members: ReportMember[];
+    sync: SyncSummary;
 }
 export type MetricsComments = number | null;
 export type MetricsFollowersFromPost = number | null;
@@ -374,6 +462,22 @@ export interface PostPayload {
     textPreview?: PostPayloadTextPreview;
     urn: string;
 }
+export interface PostReport {
+    /** Everyone who posted in the period, most matching posts first. */
+    authors: ReportAuthor[];
+    filters: ReportFilters;
+    /**
+     * Number of entries in `posts`.
+     * @minimum 0
+     */
+    postCount: number;
+    posts: ReportPost[];
+    /** "impressionsOutOfNetwork" when that filter is set, otherwise "impressions"; highest first. */
+    sortedBy: string;
+    /** The UTC offset the period and `postedAtLocal` are in, e.g. `-07:00` (same as
+  `filters.timezone`). */
+    timezone: string;
+}
 export type PostStatTextPreview = string | null;
 export interface PostStat {
     /** LinkedIn's total comment count. */
@@ -407,6 +511,139 @@ export type ProfilePayloadProfileViews = number | null;
 export interface ProfilePayload {
     followerCount?: ProfilePayloadFollowerCount;
     profileViews?: ProfilePayloadProfileViews;
+}
+export type ReportAuthorProfileUrl = string | null;
+export type ReportAuthorPublicIdentifier = string | null;
+/**
+ * One person who posted in the period.
+ */
+export interface ReportAuthor {
+    /** True when an admin has since deleted this account (see `ReportPost::author_deleted`). */
+    deleted: boolean;
+    displayName: string;
+    /** How many of those passed the filters (equal to `postsInPeriod` with none). */
+    matchingPosts: number;
+    memberId: number;
+    /** Every post they published in the period, whatever its numbers. */
+    postsInPeriod: number;
+    profileUrl: ReportAuthorProfileUrl;
+    publicIdentifier: ReportAuthorPublicIdentifier;
+}
+/**
+ * Text the posts were searched for (lowercased), or null.
+ */
+export type ReportFiltersContains = string | null;
+export type ReportFiltersMemberId = number | null;
+export type ReportFiltersMinImpressions = number | null;
+export type ReportFiltersMinOutOfNetworkImpressions = number | null;
+export interface ReportFilters {
+    /** Text the posts were searched for (lowercased), or null. */
+    contains: ReportFiltersContains;
+    includeReposts: boolean;
+    memberId: ReportFiltersMemberId;
+    minImpressions: ReportFiltersMinImpressions;
+    minOutOfNetworkImpressions: ReportFiltersMinOutOfNetworkImpressions;
+    /** First instant included, e.g. `2026-11-06T00:00:00-07:00`. */
+    since: string;
+    /** The UTC offset dates were read in, e.g. `-07:00`; `+00:00` by default. */
+    timezone: string;
+    /** Last instant included, e.g. `2026-11-12T23:59:59-07:00`. */
+    until: string;
+}
+/**
+ * Last successful sync, `YYYY-MM-DDTHH:MM:SSZ`, or null if the extension never synced.
+ */
+export type ReportMemberLastSyncedAt = string | null;
+export type ReportMemberLastSyncedAtUnix = number | null;
+/**
+ * Publication time of their newest original post, or null if none.
+ */
+export type ReportMemberNewestPostAt = string | null;
+export type ReportMemberProfileUrl = string | null;
+export type ReportMemberPublicIdentifier = string | null;
+/**
+ * One account, as the reporting API shows it. No email: this goes to an outside agent.
+ */
+export interface ReportMember {
+    createdAt: string;
+    displayName: string;
+    /** Last successful sync, `YYYY-MM-DDTHH:MM:SSZ`, or null if the extension never synced. */
+    lastSyncedAt: ReportMemberLastSyncedAt;
+    lastSyncedAtUnix: ReportMemberLastSyncedAtUnix;
+    /** A LinkedIn identity is bound to the account (the extension has signed in at least once). */
+    linked: boolean;
+    memberId: number;
+    /** Publication time of their newest original post, or null if none. */
+    newestPostAt: ReportMemberNewestPostAt;
+    /** Original posts on file (reshares not counted). */
+    postCount: number;
+    profileUrl: ReportMemberProfileUrl;
+    publicIdentifier: ReportMemberPublicIdentifier;
+}
+export type ReportPostAuthorProfileUrl = string | null;
+export type ReportPostAuthorPublicIdentifier = string | null;
+export type ReportPostComments = number | null;
+export type ReportPostImpressions = number | null;
+export type ReportPostImpressionsInNetwork = number | null;
+export type ReportPostImpressionsOutOfNetwork = number | null;
+/**
+ * When the post was last read (`YYYY-MM-DDTHH:MM:SSZ`), or null if it never was. A number
+that reading missed falls back to the previous reading that had it.
+ */
+export type ReportPostMetricsCapturedAt = string | null;
+export type ReportPostReactions = number | null;
+export type ReportPostReposts = number | null;
+export type ReportPostSaves = number | null;
+export type ReportPostSends = number | null;
+/**
+ * The post's full text as stored (LinkedIn posts are at most 3,000 characters; the server
+keeps up to 10,000), or null when the extension could not read it.
+ */
+export type ReportPostText = string | null;
+/**
+ * One post in the report. Each number is the most recent value read for it; null means LinkedIn's
+number was never read for this post.
+ */
+export interface ReportPost {
+    /** True when an admin has since deleted the author's account. Their posts stay in the
+  period they were published in, so a past week's report does not change when someone leaves. */
+    authorDeleted: boolean;
+    authorName: string;
+    authorProfileUrl: ReportPostAuthorProfileUrl;
+    authorPublicIdentifier: ReportPostAuthorPublicIdentifier;
+    comments: ReportPostComments;
+    impressions: ReportPostImpressions;
+    impressionsInNetwork: ReportPostImpressionsInNetwork;
+    impressionsOutOfNetwork: ReportPostImpressionsOutOfNetwork;
+    /** True when this is the member resharing someone else's post. Only present with
+  `includeReposts=true`; by default the report covers original posts only. */
+    isRepost: boolean;
+    memberId: number;
+    /** When the post was last read (`YYYY-MM-DDTHH:MM:SSZ`), or null if it never was. A number
+  that reading missed falls back to the previous reading that had it. */
+    metricsCapturedAt: ReportPostMetricsCapturedAt;
+    postId: number;
+    /** Link to the post on LinkedIn. */
+    postUrl: string;
+    /** When the post was published, `YYYY-MM-DDTHH:MM:SSZ` (UTC). */
+    postedAt: string;
+    /** The same moment in the requested `timezone`, e.g. `2026-11-12T21:30:00-07:00`. */
+    postedAtLocal: string;
+    /** The same moment as unix seconds. */
+    postedAtUnix: number;
+    reactions: ReportPostReactions;
+    reposts: ReportPostReposts;
+    saves: ReportPostSaves;
+    sends: ReportPostSends;
+    /** The post's full text as stored (LinkedIn posts are at most 3,000 characters; the server
+  keeps up to 10,000), or null when the extension could not read it. */
+    text: ReportPostText;
+}
+export interface RestoreMemberResponse {
+    ok: boolean;
+}
+export interface RevokeApiKeyResponse {
+    ok: boolean;
 }
 /**
  * Per-competition scoring parameters, stored as typed columns on the `Competition` row.
@@ -481,6 +718,13 @@ export interface SessionResponse {
     ok: boolean;
     orgSlug: string;
 }
+export interface SetAdminRequest {
+    isAdmin: boolean;
+}
+export interface SetAdminResponse {
+    isAdmin: boolean;
+    ok: boolean;
+}
 export interface SignupRequest {
     email: string;
     name: string;
@@ -527,13 +771,205 @@ export interface StandingRow {
     /** Points earned in the current scoring week. */
     weekPoints: number;
 }
+export type StatsBucketYou = null | StatsCounts;
+export interface StatsBucket {
+    company: StatsCounts;
+    /** Days the bucket covers: 1, or 7 (the last week of 90 days covers 6). */
+    days: number;
+    /** First instant of the bucket in the period's offset, e.g. `2026-11-06T00:00:00-07:00`. */
+    start: string;
+    startUnix: number;
+    you: StatsBucketYou;
+}
+export interface StatsCompany {
+    /** Accounts that are not deleted, the "out of" for `people`. */
+    activeMembers: number;
+    /** Reactions gained plus comments gained, same definition. */
+    engagement: StatsMetric;
+    /** Impressions gained during the period across all original posts, whenever published. */
+    impressions: StatsMetric;
+    /** Out-of-network impressions gained, same definition. */
+    outOfNetworkImpressions: StatsMetric;
+    /** Distinct authors of those posts. */
+    people: StatsMetric;
+    /** Original posts published in the period (reshares excluded). */
+    posts: StatsMetric;
+}
+/**
+ * Counts for one bucket of the series.
+ */
+export interface StatsCounts {
+    engagement: number;
+    /** Impressions gained, counted on the day of the reading that showed them. */
+    impressions: number;
+    outOfNetworkImpressions: number;
+    /** Original posts published in the bucket. */
+    posts: number;
+}
+/**
+ * `(value − previous) / previous`, e.g. 0.12 for +12%. Null when `previous` is 0, since
+there is nothing to compare against.
+ */
+export type StatsMetricChange = number | null;
+/**
+ * One headline number for the period, next to the period of the same length before it.
+ */
+export interface StatsMetric {
+    /** `(value − previous) / previous`, e.g. 0.12 for +12%. Null when `previous` is 0, since
+  there is nothing to compare against. */
+    change: StatsMetricChange;
+    /** The same number for the previous period of the same length. */
+    previous: number;
+    value: number;
+}
+export type StatsOverviewYou = null | StatsYou;
+export interface StatsOverview {
+    company: StatsCompany;
+    period: StatsPeriodInfo;
+    /** One entry per day (7 and 30 days) or per week (90 days), oldest first. Each column of
+  `company` adds up to the headline number for the period; `you` likewise. */
+    series: StatsBucket[];
+    sync: StatsSync;
+    /** Who posted most in the period, up to 10, most posts first (then most impressions gained). */
+    topPosters: StatsTopPoster[];
+    /** The posts that gained the most impressions in the period, up to 10. */
+    topPosts: StatsTopPost[];
+    you: StatsOverviewYou;
+}
+export interface StatsPeriodInfo {
+    /** "day" for 7 and 30 days, "week" for 90. */
+    bucket: string;
+    /** 7, 30 or 90. */
+    days: number;
+    /** Exclusive. */
+    endUnix: number;
+    /** Start of the previous period used for the comparisons (it ends at `startUnix`). */
+    previousStartUnix: number;
+    /** First instant included, e.g. `2026-11-06T00:00:00-07:00`. */
+    since: string;
+    startUnix: number;
+    /** The UTC offset the days are in, e.g. `-07:00`. */
+    timezone: string;
+    /** Last instant included, e.g. `2026-11-12T23:59:59-07:00`. */
+    until: string;
+}
+/**
+ * The most recent sync by anyone with an account, or null if nobody ever synced.
+ */
+export type StatsSyncLastSyncAt = string | null;
+export type StatsSyncLastSyncAtUnix = number | null;
+export interface StatsSync {
+    /** The most recent sync by anyone with an account, or null if nobody ever synced. */
+    lastSyncAt: StatsSyncLastSyncAt;
+    lastSyncAtUnix: StatsSyncLastSyncAtUnix;
+    /** True when that is more than two days ago (or never): the numbers have stopped moving. */
+    stale: boolean;
+}
+/**
+ * The first line of the post, shortened; null when the text was not read.
+ */
+export type StatsTopPostFirstLine = string | null;
+/**
+ * Its latest known total, or null if never read.
+ */
+export type StatsTopPostImpressions = number | null;
+/**
+ * Null for a deleted account.
+ */
+export type StatsTopPostMemberId = number | null;
+export interface StatsTopPost {
+    /** "Former member" for a deleted account. */
+    authorName: string;
+    /** The first line of the post, shortened; null when the text was not read. */
+    firstLine: StatsTopPostFirstLine;
+    formerMember: boolean;
+    /** Its latest known total, or null if never read. */
+    impressions: StatsTopPostImpressions;
+    /** Impressions this post gained during the period. */
+    impressionsGained: number;
+    isYou: boolean;
+    /** Null for a deleted account. */
+    memberId: StatsTopPostMemberId;
+    postId: number;
+    /** Link to the post on LinkedIn. */
+    postUrl: string;
+    /** `YYYY-MM-DDTHH:MM:SSZ` (UTC). */
+    postedAt: string;
+    postedAtUnix: number;
+}
+/**
+ * Null for a deleted account.
+ */
+export type StatsTopPosterMemberId = number | null;
+export interface StatsTopPoster {
+    /** "Former member" for a deleted account. */
+    displayName: string;
+    formerMember: boolean;
+    /** Impressions their posts gained in the period (all their eligible posts, not only new ones). */
+    impressionsGained: number;
+    /** This row is the `you` member. */
+    isYou: boolean;
+    /** Null for a deleted account. */
+    memberId: StatsTopPosterMemberId;
+    posts: number;
+    rank: number;
+}
+/**
+ * Their place among everyone who posted, ordered as `topPosters`; null if they did not post.
+ */
+export type StatsYouRank = number | null;
+export type StatsYouShareOfEngagement = number | null;
+export type StatsYouShareOfImpressions = number | null;
+export type StatsYouShareOfOutOfNetworkImpressions = number | null;
+/**
+ * Their part of the company's number this period, 0 to 1; null when the company's is 0.
+ */
+export type StatsYouShareOfPosts = number | null;
+/**
+ * One person's part of the company numbers, with the same definitions.
+ */
+export interface StatsYou {
+    displayName: string;
+    engagement: StatsMetric;
+    /** The extension has synced for them at least once. */
+    hasSynced: boolean;
+    impressions: StatsMetric;
+    memberId: number;
+    outOfNetworkImpressions: StatsMetric;
+    /** They published at least one original post in the period. */
+    posted: boolean;
+    /** How many people posted (what `rank` is out of). */
+    posterCount: number;
+    posts: StatsMetric;
+    /** Their place among everyone who posted, ordered as `topPosters`; null if they did not post. */
+    rank: StatsYouRank;
+    shareOfEngagement: StatsYouShareOfEngagement;
+    shareOfImpressions: StatsYouShareOfImpressions;
+    shareOfOutOfNetworkImpressions: StatsYouShareOfOutOfNetworkImpressions;
+    /** Their part of the company's number this period, 0 to 1; null when the company's is 0. */
+    shareOfPosts: StatsYouShareOfPosts;
+}
 export interface StopImpersonationResponse {
     displayName: string;
     ok: boolean;
 }
 export type SyncRequestCapturedAt = string | null;
+/**
+ * Every post URN on an under-full feed page, including posts left out of `posts` because they
+are past the refresh window and already recorded. Present only when the page is complete;
+reconciliation then keeps everything named here. It is a separate field because
+`post_feed_complete` must stay false whenever posts were left out: a server that predates
+this field would otherwise delete them.
+ */
+export type SyncRequestCompletePostFeedUrns = string[] | null;
 export interface SyncRequest {
     capturedAt?: SyncRequestCapturedAt;
+    /** Every post URN on an under-full feed page, including posts left out of `posts` because they
+  are past the refresh window and already recorded. Present only when the page is complete;
+  reconciliation then keeps everything named here. It is a separate field because
+  `post_feed_complete` must stay false whenever posts were left out: a server that predates
+  this field would otherwise delete them. */
+    completePostFeedUrns?: SyncRequestCompletePostFeedUrns;
     /** Nested originals included in normalized reshare responses, but not authored by this member. */
     excludedPostUrns?: string[];
     /** True only when LinkedIn returned fewer than the requested page size, making absence from
@@ -564,6 +1000,30 @@ export interface SyncStatusResponse {
      */
     postsCount: number;
 }
+/**
+ * The most recent sync by anyone. Hours old on a weekday means syncing has stalled.
+ */
+export type SyncSummaryNewestSyncAt = string | null;
+export interface SyncSummary {
+    /**
+     * Accounts with a LinkedIn identity that have never synced.
+     * @minimum 0
+     */
+    linkedMembersNeverSynced: number;
+    /** @minimum 0 */
+    membersSyncedLast24h: number;
+    /** @minimum 0 */
+    membersSyncedLast7d: number;
+    /** The most recent sync by anyone. Hours old on a weekday means syncing has stalled. */
+    newestSyncAt: SyncSummaryNewestSyncAt;
+    /** @minimum 0 */
+    totalMembers: number;
+}
+/**
+ * When an admin deleted the account (unix seconds), or null. The page hides these rows
+unless asked to show them.
+ */
+export type SystemMemberRowDeletedAt = number | null;
 export type SystemMemberRowEmail = string | null;
 export type SystemMemberRowFollowerCount = number | null;
 /**
@@ -575,6 +1035,9 @@ export type SystemMemberRowLastSyncedAt = number | null;
  */
 export interface SystemMemberRow {
     createdAt: number;
+    /** When an admin deleted the account (unix seconds), or null. The page hides these rows
+  unless asked to show them. */
+    deletedAt: SystemMemberRowDeletedAt;
     displayName: string;
     email?: SystemMemberRowEmail;
     followerCount?: SystemMemberRowFollowerCount;
@@ -584,7 +1047,15 @@ export interface SystemMemberRow {
     lastSyncedAt?: SystemMemberRowLastSyncedAt;
     ownsChallenge: boolean;
 }
+/**
+ * The company join code an admin generated (or the fixed `JOIN_CODE` if none has been
+generated yet), or null when joining is switched off.
+ */
+export type SystemOverviewJoinCode = string | null;
 export interface SystemOverview {
+    /** The company join code an admin generated (or the fixed `JOIN_CODE` if none has been
+  generated yet), or null when joining is switched off. */
+    joinCode: SystemOverviewJoinCode;
     members: SystemMemberRow[];
 }
 export type TopPostTextPreview = string | null;
@@ -611,6 +1082,12 @@ export interface UpdateChallengeRequest {
     name: string;
     /** `YYYY-MM-DD` */
     start: string;
+}
+export interface WebSessionResponse {
+    /** Seconds the session stays valid; use it as the cookie lifetime. */
+    maxAge: number;
+    /** Value for the `session` cookie on this server. */
+    sessionToken: string;
 }
 /**
  * Posts bucketed by the same weekly buckets the scoring uses, so the grouping matches how
@@ -659,6 +1136,81 @@ export type GetMemberDetailParams = {
      * @minimum 0
      */
     pageSize?: number | null;
+};
+export type GetStatsOverviewParams = {
+    /**
+     * 7 (default), 30 or 90: the past that many days, today included.
+     */
+    days?: number;
+    /**
+     * The viewer's UTC offset, e.g. `-07:00`, so days start at their midnight. Default UTC.
+     */
+    timezone?: string;
+};
+export type GetMemberReportParams = {
+    /**
+     * `json` (default) or `csv`.
+     */
+    format?: string;
+};
+export type GetPostReportParams = {
+    /**
+     * Start of the period, included: a day (`YYYY-MM-DD`, from its first second in `timezone`)
+    or an exact time with an offset (`2026-11-06T00:00:00-07:00`). Default: the start of the
+    day six days before `until`.
+     */
+    since?: string;
+    /**
+     * End of the period, included: a day (to its last second in `timezone`) or an exact time
+    with an offset. Default: the end of today in `timezone`.
+     */
+    until?: string;
+    /**
+     * Fixed UTC offset that dates are read in and local times are shown in: `-07:00`,
+    `+00:00` or `Z`. Default UTC. Not a zone name: Mountain time is -07:00 in winter and
+    -06:00 in summer.
+     */
+    timezone?: string;
+    /**
+     * Only posts with at least this many impressions.
+     */
+    minImpressions?: number;
+    /**
+     * Only posts with at least this many out-of-network impressions. Posts whose
+    out-of-network number is unknown never match.
+     */
+    minOutOfNetworkImpressions?: number;
+    /**
+     * Only posts whose text contains this, ignoring case ("enzo" finds "Enzo" and
+    "enzo.health"). Posts with no stored text never match.
+     */
+    contains?: string;
+    /**
+     * Include reshares (flagged `isRepost`). Default false: original posts only.
+     */
+    includeReposts?: boolean;
+    /**
+     * Only this member's posts.
+     */
+    memberId?: number;
+    /**
+     * `json` (default) or `csv`.
+     */
+    format?: string;
+};
+export type GetStatsReportParams = {
+    /**
+     * 7 (default), 30 or 90: the past that many days, today included.
+     */
+    days?: number;
+    /**
+     * Fixed UTC offset the days are read in: `-07:00`, `+00:00` or `Z`. Default UTC.
+     */
+    timezone?: string;
+    /**
+     * Also return this member's share of each number as `you`.
+     */
+    memberId?: number;
 };
 export type HTTPStatusCode1xx = 100 | 101 | 102 | 103;
 export type HTTPStatusCode2xx = 200 | 201 | 202 | 203 | 204 | 205 | 206 | 207;
@@ -717,6 +1269,44 @@ export type signInDeviceWithSessionResponseError = (signInDeviceWithSessionRespo
 export type signInDeviceWithSessionResponse = (signInDeviceWithSessionResponseSuccess | signInDeviceWithSessionResponseError);
 export declare const getSignInDeviceWithSessionUrl: () => string;
 export declare const signInDeviceWithSession: (sessionDeviceRequest: SessionDeviceRequest, options?: RequestInit) => Promise<signInDeviceWithSessionResponse>;
+export type startWebSessionFromDeviceResponse200 = {
+    data: WebSessionResponse;
+    status: 200;
+};
+export type startWebSessionFromDeviceResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type startWebSessionFromDeviceResponseSuccess = (startWebSessionFromDeviceResponse200) & {
+    headers: Headers;
+};
+export type startWebSessionFromDeviceResponseError = (startWebSessionFromDeviceResponse401) & {
+    headers: Headers;
+};
+export type startWebSessionFromDeviceResponse = (startWebSessionFromDeviceResponseSuccess | startWebSessionFromDeviceResponseError);
+export declare const getStartWebSessionFromDeviceUrl: () => string;
+export declare const startWebSessionFromDevice: (options?: RequestInit) => Promise<startWebSessionFromDeviceResponse>;
+export type joinWithExtensionResponse200 = {
+    data: ExtensionJoinResponse;
+    status: 200;
+};
+export type joinWithExtensionResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type joinWithExtensionResponse403 = {
+    data: ApiError;
+    status: 403;
+};
+export type joinWithExtensionResponseSuccess = (joinWithExtensionResponse200) & {
+    headers: Headers;
+};
+export type joinWithExtensionResponseError = (joinWithExtensionResponse400 | joinWithExtensionResponse403) & {
+    headers: Headers;
+};
+export type joinWithExtensionResponse = (joinWithExtensionResponseSuccess | joinWithExtensionResponseError);
+export declare const getJoinWithExtensionUrl: () => string;
+export declare const joinWithExtension: (extensionJoinRequest: ExtensionJoinRequest, options?: RequestInit) => Promise<joinWithExtensionResponse>;
 export type joinWithInviteResponse200 = {
     data: JoinResponse;
     status: 200;
@@ -1048,6 +1638,27 @@ export type getMemberDetailResponseError = (getMemberDetailResponseDefault) & {
 export type getMemberDetailResponse = (getMemberDetailResponseSuccess | getMemberDetailResponseError);
 export declare const getGetMemberDetailUrl: (id: number, params?: GetMemberDetailParams) => string;
 export declare const getMemberDetail: (id: number, params?: GetMemberDetailParams, options?: RequestInit) => Promise<getMemberDetailResponse>;
+export type getStatsOverviewResponse200 = {
+    data: StatsOverview;
+    status: 200;
+};
+export type getStatsOverviewResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type getStatsOverviewResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type getStatsOverviewResponseSuccess = (getStatsOverviewResponse200) & {
+    headers: Headers;
+};
+export type getStatsOverviewResponseError = (getStatsOverviewResponse400 | getStatsOverviewResponse401) & {
+    headers: Headers;
+};
+export type getStatsOverviewResponse = (getStatsOverviewResponseSuccess | getStatsOverviewResponseError);
+export declare const getGetStatsOverviewUrl: (params?: GetStatsOverviewParams) => string;
+export declare const getStatsOverview: (params?: GetStatsOverviewParams, options?: RequestInit) => Promise<getStatsOverviewResponse>;
 export type pushSyncResponse200 = {
     data: SyncResponse;
     status: 200;
@@ -1065,9 +1676,72 @@ export type pushSyncResponseError = (pushSyncResponse401) & {
 export type pushSyncResponse = (pushSyncResponseSuccess | pushSyncResponseError);
 export declare const getPushSyncUrl: () => string;
 export declare const pushSync: (syncRequest: SyncRequest, options?: RequestInit) => Promise<pushSyncResponse>;
+export type listApiKeysResponse200 = {
+    data: ApiKeyList;
+    status: 200;
+};
+export type listApiKeysResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type listApiKeysResponseSuccess = (listApiKeysResponse200) & {
+    headers: Headers;
+};
+export type listApiKeysResponseError = (listApiKeysResponse401) & {
+    headers: Headers;
+};
+export type listApiKeysResponse = (listApiKeysResponseSuccess | listApiKeysResponseError);
+export declare const getListApiKeysUrl: () => string;
+export declare const listApiKeys: (options?: RequestInit) => Promise<listApiKeysResponse>;
+export type createApiKeyResponse200 = {
+    data: CreatedApiKey;
+    status: 200;
+};
+export type createApiKeyResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type createApiKeyResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type createApiKeyResponseSuccess = (createApiKeyResponse200) & {
+    headers: Headers;
+};
+export type createApiKeyResponseError = (createApiKeyResponse400 | createApiKeyResponse401) & {
+    headers: Headers;
+};
+export type createApiKeyResponse = (createApiKeyResponseSuccess | createApiKeyResponseError);
+export declare const getCreateApiKeyUrl: () => string;
+export declare const createApiKey: (createApiKeyRequest: CreateApiKeyRequest, options?: RequestInit) => Promise<createApiKeyResponse>;
+export type revokeApiKeyResponse200 = {
+    data: RevokeApiKeyResponse;
+    status: 200;
+};
+export type revokeApiKeyResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type revokeApiKeyResponse404 = {
+    data: ApiError;
+    status: 404;
+};
+export type revokeApiKeyResponseSuccess = (revokeApiKeyResponse200) & {
+    headers: Headers;
+};
+export type revokeApiKeyResponseError = (revokeApiKeyResponse401 | revokeApiKeyResponse404) & {
+    headers: Headers;
+};
+export type revokeApiKeyResponse = (revokeApiKeyResponseSuccess | revokeApiKeyResponseError);
+export declare const getRevokeApiKeyUrl: (id: number) => string;
+export declare const revokeApiKey: (id: number, options?: RequestInit) => Promise<revokeApiKeyResponse>;
 export type impersonateResponse200 = {
     data: ImpersonateResponse;
     status: 200;
+};
+export type impersonateResponse400 = {
+    data: ApiError;
+    status: 400;
 };
 export type impersonateResponse401 = {
     data: ApiError;
@@ -1080,7 +1754,7 @@ export type impersonateResponse404 = {
 export type impersonateResponseSuccess = (impersonateResponse200) & {
     headers: Headers;
 };
-export type impersonateResponseError = (impersonateResponse401 | impersonateResponse404) & {
+export type impersonateResponseError = (impersonateResponse400 | impersonateResponse401 | impersonateResponse404) & {
     headers: Headers;
 };
 export type impersonateResponse = (impersonateResponseSuccess | impersonateResponseError);
@@ -1103,6 +1777,98 @@ export type stopImpersonationResponseError = (stopImpersonationResponse400) & {
 export type stopImpersonationResponse = (stopImpersonationResponseSuccess | stopImpersonationResponseError);
 export declare const getStopImpersonationUrl: () => string;
 export declare const stopImpersonation: (options?: RequestInit) => Promise<stopImpersonationResponse>;
+export type regenerateJoinLinkResponse200 = {
+    data: JoinLinkResponse;
+    status: 200;
+};
+export type regenerateJoinLinkResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type regenerateJoinLinkResponseSuccess = (regenerateJoinLinkResponse200) & {
+    headers: Headers;
+};
+export type regenerateJoinLinkResponseError = (regenerateJoinLinkResponse401) & {
+    headers: Headers;
+};
+export type regenerateJoinLinkResponse = (regenerateJoinLinkResponseSuccess | regenerateJoinLinkResponseError);
+export declare const getRegenerateJoinLinkUrl: () => string;
+export declare const regenerateJoinLink: (options?: RequestInit) => Promise<regenerateJoinLinkResponse>;
+export type deleteMemberResponse200 = {
+    data: DeleteMemberResponse;
+    status: 200;
+};
+export type deleteMemberResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type deleteMemberResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type deleteMemberResponse404 = {
+    data: ApiError;
+    status: 404;
+};
+export type deleteMemberResponse409 = {
+    data: ApiError;
+    status: 409;
+};
+export type deleteMemberResponseSuccess = (deleteMemberResponse200) & {
+    headers: Headers;
+};
+export type deleteMemberResponseError = (deleteMemberResponse400 | deleteMemberResponse401 | deleteMemberResponse404 | deleteMemberResponse409) & {
+    headers: Headers;
+};
+export type deleteMemberResponse = (deleteMemberResponseSuccess | deleteMemberResponseError);
+export declare const getDeleteMemberUrl: (id: number) => string;
+export declare const deleteMember: (id: number, options?: RequestInit) => Promise<deleteMemberResponse>;
+export type setMemberAdminResponse200 = {
+    data: SetAdminResponse;
+    status: 200;
+};
+export type setMemberAdminResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type setMemberAdminResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type setMemberAdminResponse404 = {
+    data: ApiError;
+    status: 404;
+};
+export type setMemberAdminResponseSuccess = (setMemberAdminResponse200) & {
+    headers: Headers;
+};
+export type setMemberAdminResponseError = (setMemberAdminResponse400 | setMemberAdminResponse401 | setMemberAdminResponse404) & {
+    headers: Headers;
+};
+export type setMemberAdminResponse = (setMemberAdminResponseSuccess | setMemberAdminResponseError);
+export declare const getSetMemberAdminUrl: (id: number) => string;
+export declare const setMemberAdmin: (id: number, setAdminRequest: SetAdminRequest, options?: RequestInit) => Promise<setMemberAdminResponse>;
+export type restoreMemberResponse200 = {
+    data: RestoreMemberResponse;
+    status: 200;
+};
+export type restoreMemberResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type restoreMemberResponse404 = {
+    data: ApiError;
+    status: 404;
+};
+export type restoreMemberResponseSuccess = (restoreMemberResponse200) & {
+    headers: Headers;
+};
+export type restoreMemberResponseError = (restoreMemberResponse401 | restoreMemberResponse404) & {
+    headers: Headers;
+};
+export type restoreMemberResponse = (restoreMemberResponseSuccess | restoreMemberResponseError);
+export declare const getRestoreMemberUrl: (id: number) => string;
+export declare const restoreMember: (id: number, options?: RequestInit) => Promise<restoreMemberResponse>;
 export type getSystemOverviewResponse200 = {
     data: SystemOverview;
     status: 200;
@@ -1120,3 +1886,70 @@ export type getSystemOverviewResponseError = (getSystemOverviewResponseDefault) 
 export type getSystemOverviewResponse = (getSystemOverviewResponseSuccess | getSystemOverviewResponseError);
 export declare const getGetSystemOverviewUrl: () => string;
 export declare const getSystemOverview: (options?: RequestInit) => Promise<getSystemOverviewResponse>;
+export type getMemberReportResponse200 = {
+    data: MemberReport;
+    status: 200;
+};
+export type getMemberReportResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type getMemberReportResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type getMemberReportResponseSuccess = (getMemberReportResponse200) & {
+    headers: Headers;
+};
+export type getMemberReportResponseError = (getMemberReportResponse400 | getMemberReportResponse401) & {
+    headers: Headers;
+};
+export type getMemberReportResponse = (getMemberReportResponseSuccess | getMemberReportResponseError);
+export declare const getGetMemberReportUrl: (params?: GetMemberReportParams) => string;
+export declare const getMemberReport: (params?: GetMemberReportParams, options?: RequestInit) => Promise<getMemberReportResponse>;
+export type getPostReportResponse200 = {
+    data: PostReport;
+    status: 200;
+};
+export type getPostReportResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type getPostReportResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type getPostReportResponseSuccess = (getPostReportResponse200) & {
+    headers: Headers;
+};
+export type getPostReportResponseError = (getPostReportResponse400 | getPostReportResponse401) & {
+    headers: Headers;
+};
+export type getPostReportResponse = (getPostReportResponseSuccess | getPostReportResponseError);
+export declare const getGetPostReportUrl: (params?: GetPostReportParams) => string;
+export declare const getPostReport: (params?: GetPostReportParams, options?: RequestInit) => Promise<getPostReportResponse>;
+export type getStatsReportResponse200 = {
+    data: StatsOverview;
+    status: 200;
+};
+export type getStatsReportResponse400 = {
+    data: ApiError;
+    status: 400;
+};
+export type getStatsReportResponse401 = {
+    data: ApiError;
+    status: 401;
+};
+export type getStatsReportResponse404 = {
+    data: ApiError;
+    status: 404;
+};
+export type getStatsReportResponseSuccess = (getStatsReportResponse200) & {
+    headers: Headers;
+};
+export type getStatsReportResponseError = (getStatsReportResponse400 | getStatsReportResponse401 | getStatsReportResponse404) & {
+    headers: Headers;
+};
+export type getStatsReportResponse = (getStatsReportResponseSuccess | getStatsReportResponseError);
+export declare const getGetStatsReportUrl: (params?: GetStatsReportParams) => string;
+export declare const getStatsReport: (params?: GetStatsReportParams, options?: RequestInit) => Promise<getStatsReportResponse>;

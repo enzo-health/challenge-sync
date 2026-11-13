@@ -8,7 +8,9 @@ const DEFAULTS = {
   memberUrn: null,
   publicIdentifier: null,
   lastSyncAt: null,      // ISO timestamp of last successful sync
-  lastError: null,       // human-readable last error, or null
+  lastError: null,       // human-readable last error, or null (see errors.js describeError)
+  lastErrorCode: null,   // its short code ("unreachable", "server-500", "linkedin-signed-out", ...)
+  lastKickedSyncAt: null, // ISO time a page or popup visit last started an automatic sync
   lastPostsIngested: 0,
   syncJitterMinutes: null, // per-install offset added to the 12h floor, fixed at first sync
   // { memberUrn, urns }: the posts on the latest feed page that the server has accepted from this

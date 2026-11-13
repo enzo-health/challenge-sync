@@ -16,9 +16,11 @@
 // that got it challenged.
 import { getState, setState } from "./storage.js";
 import { JOIN_COOKIE, SERVER_URL, SESSION_COOKIE } from "./config.js";
+import { ExtensionStateError, SERVER_CODES, ServerError } from "./errors.js";
 import {
   BlockedError,
   bearer,
+  contentTypeOf,
   getSyncStatus,
   installApiBaseUrl,
   isBlocked,
@@ -57,13 +59,19 @@ export function clearServerBackoff() {
   blockBackoffMs = 0;
 }
 
-// An answer from our server that the caller has no special meaning for. Carries the status, so
-// the popup and the site can show which failure it was.
+// An answer from our server that the caller has no special meaning for. Carries everything known
+// about it (status, refusal code, content type, the server's own words) so errors.js can say which
+// failure it was. The text of a non-JSON body is not the server's words: it is an HTML error page.
 function serverError(res) {
-  const err = new Error(res.data?.error || `Server error (${res.status}).`);
-  err.status = res.status;
-  return err;
+  const json = res.headers?.get?.("x-challenge-sync-non-json") !== "1";
+  return new ServerError({
+    status: res.status,
+    code: json ? res.data?.code : null,
+    contentType: contentTypeOf(res.headers),
+    serverMessage: json && typeof res.data?.error === "string" ? res.data.error : null,
+  });
 }
+const refusedWith = (res, code) => res.data?.code === code && res.headers?.get?.("x-challenge-sync-non-json") !== "1";
 
 // Make one request to our server. A response that never reached it throws BlockedError and starts
 // (or doubles) the back-off; any response from the server itself ends it.
@@ -102,7 +110,9 @@ export async function signInFromSession() {
   if (!sessionToken) return null;
 
   const res = await reach(() => signInDeviceWithSession({ sessionToken }));
-  if (res.status === 401) return null; // stale or expired cookie — same remedy as having none
+  // The server's own "that session has expired" (0.1.4 servers say so with a code; older ones
+  // answered a bare 401, which meant the same): same remedy as having no session at all.
+  if (res.status === 401 && (refusedWith(res, SERVER_CODES.SESSION_EXPIRED) || !res.data?.code)) return null;
   if (res.status !== 200) throw serverError(res);
   return res.data;
 }
@@ -138,14 +148,15 @@ export async function readJoinCode() {
 // Sign in from the LinkedIn identity alone: creates the account on first use, signs in to the
 // existing one afterwards.
 //
-// Returns `{ inviteRefused: true }` only when our server itself refused the join code: its JSON
-// 403 saying to open the invite link (see app/api/auth/extension/join/route.rs). Everything else
-// throws: a 403 from the host's bot challenge (BlockedError; the code was never even checked), the
-// server's other 403 (a removed account, whose message says so), and any other status.
-export const INVITE_REFUSED_ERROR = "open your company's invite link first";
+// Returns `{ inviteRefused: true }` only when our server itself refused the join code, saying so
+// with the code `join_code_invalid`, and `{ needsInvite: true }` only when it said
+// `join_code_required` (see app/api/auth/extension/join/route.rs). Its English text is never
+// read. Everything else throws: a host's bot challenge (BlockedError; the code was never even
+// checked), no answer at all, the server's other refusals (a removed account), any other status.
 export async function joinWithLinkedIn(member, joinCode) {
   const res = await reach(() => postJson("/api/auth/extension/join", { joinCode, member }));
-  if (res.status === 403 && res.data?.error === INVITE_REFUSED_ERROR) return { inviteRefused: true };
+  if (res.status === 403 && refusedWith(res, SERVER_CODES.JOIN_CODE_INVALID)) return { inviteRefused: true };
+  if (res.status === 403 && refusedWith(res, SERVER_CODES.JOIN_CODE_REQUIRED)) return { needsInvite: true };
   if (res.status !== 200) throw serverError(res);
   await setState({
     syncToken: res.data.syncToken,
@@ -166,8 +177,9 @@ export async function joinWithLinkedIn(member, joinCode) {
 // (expired, or left over from another database). It is throttled so a page polling for sign-in
 // cannot mint a session every few seconds.
 //
-// Throws BlockedError when the host blocks the request, so the site can say so; any other failure
-// is "no session" (false).
+// Returns false only when this browser has no sync token to make a session from. Every failure
+// throws, sorted by errors.js (blocked, unreachable, a refusal with its code, a server problem),
+// so the site can say which it was rather than read it as "signed out".
 let lastForcedAt = 0;
 export async function ensureWebSession({ force = false } = {}) {
   if (await readSessionCookie()) {
@@ -177,7 +189,7 @@ export async function ensureWebSession({ force = false } = {}) {
   const { syncToken } = await getState();
   if (!syncToken) return false;
   const res = await reach(() => postJson("/api/auth/device/web-session", undefined, bearer(syncToken)));
-  if (res.status !== 200) return false;
+  if (res.status !== 200) throw serverError(res);
   await chrome.cookies.set({
     url: SERVER_URL,
     name: SESSION_COOKIE,
@@ -196,11 +208,7 @@ export async function linkIdentityToAccount(syncToken, member) {
   const token = syncToken.trim();
   const res = await reach(() => linkIdentity({ member }, bearer(token)));
 
-  if (res.status === 401) throw new Error("That sync token wasn't recognized.");
-  if (res.status === 409) {
-    throw new Error("This LinkedIn account is already linked to someone else.");
-  }
-  if (res.status !== 200) throw serverError(res);
+  if (res.status !== 200) throw serverError(res); // 401 and 409 carry their codes
 
   await setState({
     syncToken: token,
@@ -224,26 +232,20 @@ export async function linkIdentityToAccount(syncToken, member) {
 // A host block is not a 401 and replaces nothing: it throws BlockedError with the token untouched.
 export async function pushSnapshot(payload) {
   const { syncToken } = await getState();
-  if (!syncToken) throw new Error("Not linked yet.");
+  if (!syncToken) throw new ExtensionStateError("not-linked", "This browser isn't connected to Challenge Sync yet.");
 
   let res = await reach(() => pushSync(payload, bearer(syncToken)));
 
-  if (res.status === 401) {
+  // A removed account is not a stale token: there is nothing to recover, so say that.
+  if (res.status === 401 && !refusedWith(res, SERVER_CODES.ACCOUNT_DELETED)) {
     const account = await signInFromSession();
-    if (!account) {
-      throw new Error(
-        "Your link expired. Open the challenge site, sign in, then press Connect.",
-      );
-    }
+    if (!account) throw serverError(res); // sync_token_rejected: "open the site to sign in again"
     await setState({
       syncToken: account.syncToken,
       orgName: account.orgName,
       displayName: account.displayName,
     });
     res = await reach(() => pushSync(payload, bearer(account.syncToken))); // once only — no retry loop
-    if (res.status === 401) {
-      throw new Error("Signed in, but the server rejected the new token. Press Connect.");
-    }
   }
 
   if (res.status !== 200) throw serverError(res);
@@ -251,12 +253,12 @@ export async function pushSnapshot(payload) {
 }
 
 // What the server knows about this account across every device. Null when this device is not
-// linked or the token is no longer accepted; callers fall back to local state. Throws
-// BlockedError when the host blocks the request (the token says nothing about that).
+// linked. Any failure throws (sorted by errors.js); the popup then falls back to local state and
+// says why.
 export async function fetchSyncStatus() {
   const { syncToken } = await getState();
   if (!syncToken) return null;
   const res = await reach(() => getSyncStatus(bearer(syncToken)));
-  if (res.status !== 200) return null;
+  if (res.status !== 200) throw serverError(res);
   return res.data;
 }

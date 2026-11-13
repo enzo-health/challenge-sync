@@ -13,11 +13,22 @@ const EXTENSION = "challenge-sync-extension";
 window.addEventListener("message", async (event) => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   if (!event.data || event.data.source !== PAGE || event.data.type !== "HELLO") return;
+  // Since 0.1.4: say "I'm here" at once. The full answer waits for linking and the web session,
+  // which can take several seconds, and a page waiting that long would think the extension is
+  // off. A bridge left behind in this tab by an extension that has since been switched off or
+  // updated has no runtime id, and must not claim to be here.
+  if (!chrome.runtime?.id) return;
+  window.postMessage({ source: EXTENSION, type: "PRESENT" }, window.location.origin);
   let reply;
   try {
-    reply = await chrome.runtime.sendMessage({ type: "PAGE_HELLO" });
-  } catch {
+    reply = await chrome.runtime.sendMessage({ type: "PAGE_HELLO", signedIn: event.data.signedIn === true });
+  } catch (err) {
     // The worker was reloaded under this tab (an extension update); the next hello reaches it.
+    // Said to the page, so it isn't left believing a "present" with no answer behind it.
+    window.postMessage(
+      { source: EXTENSION, type: "UNAVAILABLE", errorCode: "extension-unavailable", error: String(err?.message || err) },
+      window.location.origin,
+    );
     return;
   }
   if (!reply) return;
@@ -33,6 +44,11 @@ window.addEventListener("message", async (event) => {
       inviteRefused: Boolean(reply.inviteRefused),
       error: reply.error || null,
       errorCode: reply.errorCode || null,
+      // Since 0.1.4, for the signed-in banner (see background.js PAGE_HELLO).
+      sync: reply.sync || null,
+      lastSyncAt: reply.lastSyncAt || null,
+      syncError: reply.syncError || null,
+      syncErrorCode: reply.syncErrorCode || null,
     },
     window.location.origin,
   );

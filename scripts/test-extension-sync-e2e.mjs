@@ -141,8 +141,8 @@ try {
   cookies.set(JOIN_COOKIE, { value: encodeURIComponent("wrong code") });
   check("a wrong join code is refused by the server and stores nothing",
     (await sync.joinWithLinkedIn(member, await sync.readJoinCode())).inviteRefused === true && !(await getState()).syncToken);
-  check("the server's refusal is the exact message the extension matches on",
-    readFileSync(resolve(ROOT, "server/app/api/auth/extension/join/route.rs"), "utf8").includes(`"${sync.INVITE_REFUSED_ERROR}"`));
+  check("no join code at all is the server's join_code_required, read as 'needs an invite'",
+    (await sync.joinWithLinkedIn(member, "")).needsInvite === true && !(await getState()).syncToken);
   cookies.set(JOIN_COOKIE, { value: encodeURIComponent(JOIN_CODE) });
   check("the join code is read back from the site's cookie", (await sync.readJoinCode()) === JOIN_CODE);
   const joined = await sync.joinWithLinkedIn(member, JOIN_CODE);
@@ -256,16 +256,36 @@ try {
   hostBlocks.set("/api/auth/extension/join", () => Response.json({ error: "slow down" }, { status: 429 }));
   check("a 429 is a host block", (await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE))).blocked);
   sync.clearServerBackoff();
-  hostBlocks.set("/api/auth/extension/join", () =>
-    Response.json({ error: "this account has been removed; ask an admin to restore it" }, { status: 403 }));
-  const removed = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
-  check("the server's other 403 (a removed account) is an error with its message and status, not an invite refusal",
-    removed.value === undefined && !removed.blocked && removed.err.status === 403 && /removed/.test(removed.err.message));
-  hostBlocks.set("/api/auth/extension/join", () => Response.json({ error: "boom" }, { status: 500 }));
-  const crashed = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
-  check("a 500 from the server is an error with its status, not an invite refusal",
-    crashed.value === undefined && !crashed.blocked && crashed.err.status === 500);
-  hostBlocks.delete("/api/auth/extension/join");
+  // Invite messages need the server's code; everything else says what it was (extension/errors.js).
+  const { describeError } = await import("../extension/errors.js");
+  const joinAnswer = async (respond) => {
+    hostBlocks.set("/api/auth/extension/join", respond);
+    const outcome = await blockedError(() => sync.joinWithLinkedIn(member, JOIN_CODE));
+    sync.clearServerBackoff();
+    hostBlocks.delete("/api/auth/extension/join");
+    return { ...outcome, described: outcome.err ? describeError(outcome.err) : null };
+  };
+  const notInvite = (o) => o.value === undefined && !/invite/i.test(o.described?.message ?? "invite");
+  let o = await joinAnswer(() => Response.json({ error: "anything at all", code: "join_code_invalid" }, { status: 403 }));
+  check("a JSON 403 with join_code_invalid is an invite refusal, whatever its text", o.value?.inviteRefused === true);
+  o = await joinAnswer(() => Response.json({ error: "open your company's invite link first" }, { status: 403 }));
+  check("a JSON 403 with the old invite text but no code is NOT an invite refusal",
+    notInvite(o) && o.described.code === "unexpected-403", JSON.stringify(o.described));
+  o = await joinAnswer(() => Response.json({ error: "something new", code: "some_future_code" }, { status: 403 }));
+  check("a JSON 403 with an unknown code is NOT an invite refusal, and says its status and code",
+    notInvite(o) && o.described.code === "unexpected-403" && /some_future_code/.test(o.described.message), JSON.stringify(o.described));
+  o = await joinAnswer(() => Response.json({ error: "this account has been removed; ask an admin to restore it", code: "account_deleted" }, { status: 403 }));
+  check("a removed account says so, not an invite refusal", notInvite(o) && o.described.code === "account_deleted" && o.err.status === 403);
+  o = await joinAnswer(() => Response.json({ error: "database error" }, { status: 500 }));
+  check("a 500 from the server is 'the server had a problem (500)'", notInvite(o) && o.described.code === "server-500" && /\(500\)/.test(o.described.message));
+  o = await joinAnswer(() => new Response("<html>Bad gateway</html>", { status: 502, headers: { "content-type": "text/html" } }));
+  check("an HTML 502 is a server problem too, not a block and not an invite",
+    notInvite(o) && !o.blocked && o.described.code === "server-502", JSON.stringify(o.described));
+  o = await joinAnswer(() => { throw new TypeError("fetch failed"); });
+  check("no answer at all (fetch threw) is 'can't reach the server'",
+    notInvite(o) && o.described.code === "unreachable" && /Can't reach the Challenge Sync server/.test(o.described.message), JSON.stringify(o.described));
+  o = await joinAnswer(challengePage);
+  check("a host challenge is 'blocked', worded as a block, not an invite", notInvite(o) && o.blocked && o.described.code === "blocked");
 
   // A challenged sync keeps the token and does not try to re-link.
   const token = (await getState()).syncToken;
@@ -286,6 +306,14 @@ try {
   sync.clearServerBackoff();
   hostBlocks.delete("/api/auth/device/web-session");
   check("unblocked, the web session is made again", (await sync.ensureWebSession()) === true);
+  // The server's refusal of the token says so, rather than reading as "no session".
+  cookies.delete(SESSION_COOKIE);
+  await setState({ syncToken: "revoked-token" });
+  const rejected = await blockedError(() => sync.ensureWebSession());
+  check("a refused token is the server's sync_token_rejected, not 'signed out'",
+    rejected.err && describeError(rejected.err).code === "sync_token_rejected", JSON.stringify(rejected.err && describeError(rejected.err)));
+  await setState({ syncToken: token });
+  check("and with the token back the session is made", (await sync.ensureWebSession()) === true);
 
   // A challenged session exchange is not "no session" (null) and not a server error.
   hostBlocks.set("/api/auth/device/session", challengePage);

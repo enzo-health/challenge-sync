@@ -373,6 +373,19 @@ pub async fn member_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<Memb
     (!member.is_deleted()).then_some(member)
 }
 
+/// The member a device token or legacy member token names, or the coded refusal: an account an
+/// admin deleted says so (`account_deleted`), anything else is `sync_token_rejected`. Both are
+/// 401, as the bearer routes always answered, so older extensions recover the same way.
+pub async fn bearer_member(db: &mut Db, headers: &HeaderMap) -> Result<Member, crate::web::ApiError> {
+    use crate::web::{ApiError, codes};
+    match token_member(db, headers).await {
+        Some(member) if !member.is_deleted() => Ok(member),
+        Some(_) => Err(ApiError::unauthorized("this account has been removed; ask an admin to restore it")
+            .with_code(codes::ACCOUNT_DELETED)),
+        None => Err(ApiError::unauthorized("invalid or missing sync token").with_code(codes::SYNC_TOKEN_REJECTED)),
+    }
+}
+
 async fn token_member(db: &mut Db, headers: &HeaderMap) -> Option<Member> {
     let raw = bearer_token(headers)?;
     let hash = hash_bearer_token(raw);

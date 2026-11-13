@@ -20,7 +20,7 @@ use linkedin_challenge_server::auth::{issue_device_token, join_code_matches};
 use linkedin_challenge_server::enroll::enroll_in_running_challenges;
 use linkedin_challenge_server::models::{Member, Org};
 use linkedin_challenge_server::util::{new_bearer_token, now_unix};
-use linkedin_challenge_server::web::ApiError;
+use linkedin_challenge_server::web::{ApiError, codes};
 use serde::{Deserialize, Serialize};
 use toasty::Db;
 use utoipa::ToSchema;
@@ -69,14 +69,18 @@ pub async fn post(
     // `pending:` is the placeholder prefix for accounts with no identity yet; accepting it here
     // would let a caller sign in as one of those.
     if urn.is_empty() || urn.len() > 200 || urn.starts_with("pending:") {
-        return Err(ApiError::bad_request("a LinkedIn identity is required"));
+        return Err(ApiError::bad_request("a LinkedIn identity is required").with_code(codes::IDENTITY_REQUIRED));
     }
+    // The text is what extension 0.1.3 matches on; 0.1.4 and later read only the code, which
+    // tells "no code at all" apart from "a code we refused".
     let join_code = req.join_code.as_deref().unwrap_or("");
+    if join_code.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "open your company's invite link first")
+            .with_code(codes::JOIN_CODE_REQUIRED));
+    }
     if !join_code_matches(&mut db, join_code).await? {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "open your company's invite link first",
-        ));
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "open your company's invite link first")
+            .with_code(codes::JOIN_CODE_INVALID));
     }
 
     let existing = Member::filter_by_linkedin_urn(urn).first().exec(&mut db).await?;
@@ -150,6 +154,7 @@ fn removed() -> ApiError {
         StatusCode::FORBIDDEN,
         "this account has been removed; ask an admin to restore it",
     )
+    .with_code(codes::ACCOUNT_DELETED)
 }
 
 /// The LinkedIn name, then the public identifier, then a neutral fallback.

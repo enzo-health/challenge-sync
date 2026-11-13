@@ -11,7 +11,7 @@
 
 use axum::{Extension, Json};
 use linkedin_challenge_server::auth::{issue_device_token, member_from_session_token};
-use linkedin_challenge_server::web::ApiError;
+use linkedin_challenge_server::web::{ApiError, codes};
 use serde::{Deserialize, Serialize};
 use toasty::Db;
 use utoipa::ToSchema;
@@ -47,7 +47,7 @@ pub async fn post(
     Json(req): Json<SessionDeviceRequest>,
 ) -> Result<Json<SessionDeviceResponse>, ApiError> {
     let Some(member) = member_from_session_token(&mut db, &req.session_token).await else {
-        return Err(ApiError::unauthorized("not signed in"));
+        return Err(ApiError::unauthorized("not signed in").with_code(codes::SESSION_EXPIRED));
     };
 
     let secret = issue_device_token(&mut db, member.id).await?;

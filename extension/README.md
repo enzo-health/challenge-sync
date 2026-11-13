@@ -24,6 +24,7 @@ transmits the LinkedIn password, and never posts, likes, or messages on the user
 | `linkedin.js` | The one fragile module: all LinkedIn/Voyager API calls + parsing. A LinkedIn change is a one-file fix. |
 | `sync.js` | Talks to our server through the generated client; maps status codes to human messages. |
 | `api.js` | Re-exports the generated client and points its root-relative URLs at the configured server. |
+| `errors.js` | Failure categories: what failed (server unreachable, host block, server problem, a coded server refusal, LinkedIn, internal), each with a message and a short code. |
 | `generated/nextrs-client/` | **Generated — do not edit.** Typed fetch client produced from the Rust routes through the server's `.nextrs` client configuration. |
 | `storage.js` | `chrome.storage.local` wrapper for config + status. No LinkedIn credentials stored. |
 | `config.js` | Tunables: default server URL, sync cadence, jitter, request delay. |
@@ -59,6 +60,14 @@ per-install jitter) have passed since the last — so a laptop that is only open
 syncs as soon as it is back online. Scrapes run sequentially, with a short delay between
 requests. A floor in code enforces that independently of the alarm, because Chrome can fire alarms
 early after a wake-from-sleep or a worker restart.
+
+The alarm is armed on install, on browser start, and on every worker start where it is missing
+(Chrome gives no guarantee that `onInstalled` runs when its owner re-enables an extension it
+switched off for a permission change). A visit to the site, or opening the popup, also starts a
+due automatic sync at once, one at a time and never more than every 15 minutes after a failure;
+see docs/extension-first-auth.md. Failures are sorted by `errors.js` into categories (can't reach
+the server, host block, server problem, a coded refusal, LinkedIn, internal), each with its own
+message and code.
 
 **Manual "Sync now" bypasses the floor.** The limit exists to keep *unattended background* traffic
 polite; a person pressing a button is deliberate and self-limiting, so refusing them serves nobody.

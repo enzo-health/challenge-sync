@@ -13,8 +13,13 @@ import {
   signInFromSession,
 } from "./sync.js";
 import { SERVER_URL, LINKEDIN_ORIGIN } from "./config.js";
+import { LinkedInError, describeError } from "./errors.js";
 
 const ALARM = "challenge-sync";
+// After a page or popup visit started an automatic sync, how long before another visit may start
+// one. Only matters when syncs keep failing (a success moves the 12-hour floor instead), and keeps
+// a member browsing the site from asking LinkedIn on every page.
+const KICK_RETRY_MINUTES = 15;
 
 // Convenience for the *service worker* console (chrome://extensions -> "service worker"), where
 // `chrome.runtime` exists but module bindings don't: `await diagnose()`.
@@ -37,11 +42,26 @@ async function scheduleSync() {
 chrome.runtime.onInstalled.addListener(scheduleSync);
 chrome.runtime.onStartup.addListener(scheduleSync);
 
+// And on every start of this worker, without replacing an alarm that is already armed. Install and
+// browser start are not the only ways in: an update Chrome held back for a permission change, then
+// re-enabled by its owner, gives no guarantee that onInstalled runs at that point, and nothing else
+// would arm the alarm until the next browser restart. (Re-enabling is not observable without the
+// "management" permission, which would be a new permission prompt for everyone; this needs none.)
+export async function ensureAlarm() {
+  if (await chrome.alarms.get(ALARM)) return false;
+  chrome.alarms.create(ALARM, { delayInMinutes: 1, periodInMinutes: SYNC_CHECK_MINUTES });
+  return true;
+}
+const alarmChecked = ensureAlarm().catch(() => false);
+globalThis.alarmChecked = alarmChecked; // for scripts/test-extension-worker.mjs
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) {
     ensureLinked()
+      // The alarm's own sync reports its failure in lastError; a missing website session is not
+      // worth one (the next page visit makes it).
       .then(() => ensureWebSession().catch(() => false))
-      .then(() => runSync())
+      .then(() => runSyncOnce())
       .catch(() => {});
   }
 });
@@ -57,12 +77,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 //
 // Returns `{ ok: true }`, or `{ ok: false }` with exactly one reason the popup and the site show:
 //   needsLinkedIn   not logged in to LinkedIn in this browser;
-//   needsInvite     no join code: the invite link was never opened in this browser;
-//   inviteRefused   our server refused the join code (wrong, or replaced by a newer link);
-//   error           anything else, with `errorCode`: "blocked" (the host stopped the request
-//                   before it reached the server), "network", "http-<status>", or "error".
-// Only the server's own refusal is `inviteRefused`, so a firewall challenge or an outage can
-// never be shown as an invite problem.
+//   needsInvite     no join code: the invite link was never opened in this browser (or the
+//                   server said `join_code_required`);
+//   inviteRefused   our server refused the join code with `join_code_invalid`;
+//   error           anything else, with `errorCode` and a message from errors.js: "blocked",
+//                   "unreachable", "timeout", "server-<status>", a server refusal code such as
+//                   "account_deleted", "linkedin-*", "unexpected-<status>", or "extension-error".
+// Only the server's coded refusal is `inviteRefused`, so a firewall challenge, an outage or an
+// unexplained 403 can never be shown as an invite problem.
 let linking = null;
 // A join code the server has already refused. LinkedIn is asked who you are before each join
 // attempt, so retrying a known-bad code on every poll would be needless traffic to LinkedIn.
@@ -81,7 +103,7 @@ async function ensureLinked() {
       // Backing off from a host block: don't ask LinkedIn who you are for a join that can't land.
       assertServerReachable();
       const me = await getMe();
-      if (!me.memberUrn) throw new Error("Couldn't read your LinkedIn profile. Open LinkedIn and log in first.");
+      if (!me.memberUrn) throw new LinkedInError("profile");
       const identity = {
         memberUrn: me.memberUrn,
         publicIdentifier: me.publicIdentifier,
@@ -98,15 +120,16 @@ async function ensureLinked() {
           refusedJoinCode = joinCode;
           return { ok: false, inviteRefused: true };
         }
+        if (data.needsInvite) return { ok: false, needsInvite: true };
       }
       await scheduleSync();
       // Kick off a first sync right away so the user sees data immediately.
-      runSync({ manual: true }).catch(() => {});
-      return { ok: true, data };
+      runSyncOnce({ manual: true }).catch(() => {});
+      return { ok: true, data, justLinked: true };
     } catch (err) {
-      const message = friendlyError(err);
-      await setState({ lastError: message });
-      return { ok: false, error: message, errorCode: errorCode(err) };
+      const { code, message } = describeError(err);
+      await setState({ lastError: message, lastErrorCode: code });
+      return { ok: false, error: message, errorCode: code };
     } finally {
       linking = null;
     }
@@ -123,6 +146,43 @@ export async function msUntilSyncAllowed() {
   const elapsed = Date.now() - new Date(lastSyncAt).getTime();
   return Math.max(0, (MIN_SYNC_INTERVAL_MINUTES + jitter) * 60_000 - elapsed);
 }
+
+// One sync at a time, whoever asks (alarm, popup, page, first link): a second caller while one
+// runs gets that sync's result instead of starting another scrape of LinkedIn.
+let syncInFlight = null;
+function runSyncOnce(options) {
+  syncInFlight ??= runSync(options).finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+/**
+ * Start an AUTOMATIC sync if one is due, because someone just visited the site or opened the popup.
+ * Unattended, so the 12-hour floor and the politeness delays hold; after a failed one, another
+ * visit waits KICK_RETRY_MINUTES. Returns what happened:
+ *   "running"      a sync is under way (just started, or already was);
+ *   "not-due"      the last successful sync is recent enough;
+ *   "recently-tried"  a visit started one a few minutes ago and it did not succeed;
+ *   "not-linked"   nothing to sync for.
+ */
+export async function startDueSync() {
+  if (syncInFlight) return "running";
+  if (!(await isLinked())) return "not-linked";
+  if ((await msUntilSyncAllowed()) > 0) return "not-due";
+  const { lastKickedSyncAt } = await getState();
+  if (lastKickedSyncAt && Date.now() - new Date(lastKickedSyncAt).getTime() < KICK_RETRY_MINUTES * 60_000) {
+    return "recently-tried";
+  }
+  if (syncInFlight) return "running"; // another hello got here during the awaits above
+  syncInFlight = runSync().finally(() => {
+    syncInFlight = null;
+  });
+  // Recorded after claiming the slot, so two hellos racing here still start one sync.
+  await setState({ lastKickedSyncAt: new Date().toISOString() });
+  return "running";
+}
+globalThis.startDueSync = startDueSync;
 
 // The core scrape+upload cycle. Records status/errors for the popup either way.
 //
@@ -159,6 +219,7 @@ async function runSync({ manual = false } = {}) {
       },
       lastSyncAt: new Date().toISOString(),
       lastError: null,
+      lastErrorCode: null,
       lastPostsIngested: result.postsIngested ?? snap.posts.length,
       syncJitterMinutes:
         typeof syncJitterMinutes === "number"
@@ -167,25 +228,15 @@ async function runSync({ manual = false } = {}) {
     });
     return { ok: true, postsIngested: result.postsIngested ?? snap.posts.length };
   } catch (err) {
-    const message = friendlyError(err);
-    await setState({ lastError: message });
-    return { ok: false, error: message };
+    const { code, message } = describeError(err);
+    await setState({ lastError: message, lastErrorCode: code });
+    return { ok: false, error: message, errorCode: code };
   }
 }
 
-function friendlyError(err) {
-  const m = String(err && err.message ? err.message : err);
-  if (m === "NOT_LOGGED_IN") return "You're not logged into LinkedIn in this browser.";
-  return m;
-}
-
-// A short, stable name for a failure, shown in small print so a screenshot says which case it was.
-function errorCode(err) {
-  if (err?.blocked) return "blocked";
-  if (typeof err?.status === "number") return `http-${err.status}`;
-  if (err instanceof TypeError) return "network"; // what fetch throws when nothing answered
-  return "error";
-}
+// What a failure says, and its short code for small print: see errors.js.
+const friendlyError = (err) => describeError(err).message;
+const errorCode = (err) => describeError(err).code;
 
 // --- popup message API -----------------------------------------------------
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -204,13 +255,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           // the server's account-wide numbers over this device's local ones: a second device
           // otherwise reads "0 posts, never synced" while the first has been syncing for weeks.
           const link = await ensureLinked();
-          if (link.ok) ensureWebSession().catch(() => {});
+          // Opening the popup is a visit: a due automatic sync starts now rather than at the alarm.
+          let sync = null;
+          if (link.ok) {
+            ensureWebSession().catch(() => {});
+            sync = await startDueSync();
+          }
           const state = await getState();
           let remote = null;
+          let remoteError = null;
           if (state.syncToken) {
-            remote = await fetchSyncStatus().catch(() => null);
+            remote = await fetchSyncStatus().catch((err) => {
+              remoteError = describeError(err);
+              return null;
+            });
           }
-          sendResponse({ ok: true, link, state, remote, dueInMs: await msUntilSyncAllowed() });
+          sendResponse({ ok: true, link, state, remote, remoteError, sync, dueInMs: await msUntilSyncAllowed() });
           break;
         }
         case "PREFLIGHT": {
@@ -221,18 +281,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           break;
         }
         case "PAGE_HELLO": {
-          // The site's get-started page, relayed by bridge.js. It only asks while it is signed
-          // out, so a session cookie that is still present is stale and gets replaced.
+          // A page of the site, relayed by bridge.js: the signed-out get-started page, or (since
+          // 0.1.4 of the site) the signed-in "hasn't synced" banner, which says `signedIn`. A
+          // signed-out page means a session cookie that is still present is stale, so it gets
+          // replaced; a signed-in page has a working one, so it is left alone.
           const link = await ensureLinked();
           let error = link.error || null;
           let code = link.errorCode || null;
+          let sync = null;
           if (link.ok) {
-            // A blocked web-session request is said out loud rather than read as "signed out".
-            await ensureWebSession({ force: true }).catch((err) => {
+            // A failed web-session request is said out loud rather than read as "signed out".
+            await ensureWebSession({ force: !msg.signedIn }).catch((err) => {
               error = friendlyError(err);
               code = errorCode(err);
             });
+            // A visit to the site by someone already linked starts a due automatic sync. Just
+            // linked, the first sync is already running (ensureLinked started it).
+            sync = await startDueSync();
           }
+          const state = await getState();
           sendResponse({
             ok: true,
             linkedInSignedIn: await isLinkedInSignedIn(),
@@ -241,6 +308,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             inviteRefused: Boolean(link.inviteRefused),
             error,
             errorCode: code,
+            // Since 0.1.4, for the signed-in banner: what this visit did about syncing, when this
+            // browser last synced, and why the last attempt failed, if it did.
+            sync,
+            lastSyncAt: state.lastSyncAt,
+            syncError: state.lastError,
+            syncErrorCode: state.lastErrorCode,
           });
           break;
         }
@@ -269,7 +342,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case "SYNC_NOW":
-          sendResponse(await runSync({ manual: true }));
+          sendResponse(await runSyncOnce({ manual: true }));
           break;
         default:
           sendResponse({ ok: false, error: "Unknown message." });

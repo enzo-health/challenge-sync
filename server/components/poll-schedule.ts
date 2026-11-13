@@ -25,3 +25,22 @@ export function helloDelay(step: number): number {
  * extension installed after this tab was opened (Chrome injects its bridge into new pages only).
  */
 export const ME_FALLBACK_MS = 60_000;
+
+/**
+ * How long the extension may stay silent before a page says it is switched off. Extension 0.1.3
+ * answers a hello only after linking and minting a web session (several round trips to our server
+ * and possibly LinkedIn), which can take seconds; 0.1.4 says "present" at once. Until this has
+ * passed, pages say they are still looking rather than "Chrome paused it".
+ */
+export const NO_ANSWER_MS = 10_000;
+
+/**
+ * While the signed-in "hasn't synced" banner is up (sync-paused.tsx), it asks /api/auth/me again
+ * after these gaps (the last one repeating), only while the tab is visible, so the banner clears
+ * soon after a sync lands without waiting for a focus change or a reload.
+ */
+export const BANNER_ME_DELAYS_MS = [30_000, 60_000];
+
+export function bannerMeDelay(step: number): number {
+  return BANNER_ME_DELAYS_MS[Math.min(step, BANNER_ME_DELAYS_MS.length - 1)];
+}

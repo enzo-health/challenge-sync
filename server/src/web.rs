@@ -8,19 +8,51 @@ use utoipa::ToSchema;
 
 /// A JSON error body. Every API route returns this shape on failure, so the generated client
 /// and the extension can rely on `{ "error": "..." }` regardless of status.
+///
+/// `code` is set on the refusals a client acts on (see [`codes`]). Clients decide on the code,
+/// never on the English `error` text, and treat a failure without a code as unexplained.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiError {
     pub error: String,
+    /// A machine-readable reason, on the refusals a client must tell apart (see `web::codes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(skip)]
     pub status: StatusCode,
+}
+
+/// The `code` values an `ApiError` can carry. The extension (extension/errors.js) and the site
+/// match on these strings, so they never change meaning; add new ones instead.
+pub mod codes {
+    /// `/api/auth/extension/join` got no join code: the invite link was never opened here.
+    pub const JOIN_CODE_REQUIRED: &str = "join_code_required";
+    /// `/api/auth/extension/join` got a join code that is wrong or has been replaced.
+    pub const JOIN_CODE_INVALID: &str = "join_code_invalid";
+    /// The LinkedIn identity or token belongs to an account an admin deleted.
+    pub const ACCOUNT_DELETED: &str = "account_deleted";
+    /// A device sync token that is missing, unknown or revoked.
+    pub const SYNC_TOKEN_REJECTED: &str = "sync_token_rejected";
+    /// A website session token that is missing, unknown or expired.
+    pub const SESSION_EXPIRED: &str = "session_expired";
+    /// The request named no usable LinkedIn identity.
+    pub const IDENTITY_REQUIRED: &str = "identity_required";
+    /// The LinkedIn identity is already bound to a different account.
+    pub const LINKEDIN_TAKEN: &str = "linkedin_taken";
 }
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
         Self {
             error: message.into(),
+            code: None,
             status,
         }
+    }
+
+    /// The same error, carrying one of [`codes`].
+    pub fn with_code(mut self, code: &str) -> Self {
+        self.code = Some(code.to_string());
+        self
     }
 
     pub fn bad_request(message: impl Into<String>) -> Self {

@@ -7,7 +7,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::auth::{SESSION_SECS, member_from_bearer, new_session_token};
+use linkedin_challenge_server::auth::{SESSION_SECS, bearer_member, new_session_token};
 use linkedin_challenge_server::enroll::enroll_in_running_challenges;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
@@ -34,9 +34,7 @@ pub async fn post(
     Extension(mut db): Extension<Db>,
     headers: HeaderMap,
 ) -> Result<Json<WebSessionResponse>, ApiError> {
-    let Some(member) = member_from_bearer(&mut db, &headers).await else {
-        return Err(ApiError::unauthorized("invalid or missing sync token"));
-    };
+    let member = bearer_member(&mut db, &headers).await?;
     // The same catch-up a password login does: accounts that predate the running challenge join it.
     enroll_in_running_challenges(&mut db, member.id).await?;
     let session_token = new_session_token(&mut db, member.id, None).await?;

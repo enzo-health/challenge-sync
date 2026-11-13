@@ -8,9 +8,9 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::auth::member_from_bearer;
+use linkedin_challenge_server::auth::bearer_member;
 use linkedin_challenge_server::models::Member;
-use linkedin_challenge_server::web::ApiError;
+use linkedin_challenge_server::web::{ApiError, codes};
 use serde::{Deserialize, Serialize};
 use toasty::Db;
 use utoipa::ToSchema;
@@ -53,9 +53,7 @@ pub async fn post(
     headers: HeaderMap,
     Json(req): Json<LinkRequest>,
 ) -> Result<Json<LinkResponse>, ApiError> {
-    let Some(member) = member_from_bearer(&mut db, &headers).await else {
-        return Err(ApiError::unauthorized("invalid or missing sync token"));
-    };
+    let member = bearer_member(&mut db, &headers).await?;
 
     // The URN is globally unique, so refuse to steal it from another account. Re-linking the same
     // LinkedIn profile to the same member stays idempotent.
@@ -67,7 +65,8 @@ pub async fn post(
     {
         return Err(ApiError::conflict(
             "this LinkedIn account is already linked to another member",
-        ));
+        )
+        .with_code(codes::LINKEDIN_TAKEN));
     }
 
     let name = display_name(&req.member).unwrap_or_else(|| member.display_name.clone());

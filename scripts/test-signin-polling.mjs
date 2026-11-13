@@ -16,7 +16,15 @@
 //      (with a Reload button) and stops polling;
 //   6. host-blocked mutations, the password sign-in and the reported "Delete account" on the All
 //      users page, show that notice instead of "Invalid email or password" or "could not be
-//      deleted".
+//      deleted";
+//   7. a slow extension (0.1.3 answers only after linking, seconds later) is never called "paused":
+//      the page says it is looking, and the paused notice waits for NO_ANSWER_MS of silence; a
+//      0.1.4 "present" clears it at once; a request that got no answer at all says "can't reach the
+//      server", not the host-block notice;
+//   8. the signed-in "hasn't synced" banner: with no extension answering it says to re-enable it;
+//      with one answering it says the extension is on and to press Sync now (or "Syncing…" when
+//      0.1.4 reports a sync running), never "re-enable"; it disappears by itself, with no focus
+//      event, once /api/auth/me stops saying stale; a hidden tab asks nothing; requests stay few.
 //
 // Simulated, not real: the extension (an injected stand-in that answers hellos the way bridge.js
 // does), hidden tabs (document.visibilityState overridden, and visibilitychange dispatched), time
@@ -28,7 +36,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
-import { ME_FALLBACK_MS, helloDelay } from "../server/components/poll-schedule.ts";
+import { ME_FALLBACK_MS, NO_ANSWER_MS, BANNER_ME_DELAYS_MS, helloDelay } from "../server/components/poll-schedule.ts";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const SERVER_BIN = resolve(ROOT, "server/target/debug/linkedin-challenge-server");
@@ -140,12 +148,32 @@ const PRELUDE = `(() => {
     if (url.includes("/api/auth/me")) window.__log.push(["me", now()]);
     return nativeFetch(input, init);
   };
+  // The stand-in extension: __reply is its full answer (null: no extension); __present makes it
+  // say "present" at once first, as 0.1.4's bridge does; __replyDelay (simulated ms) is how long the
+  // full answer takes, as 0.1.3's does while it links and mints a web session.
   window.__reply = null;
+  window.__present = false;
+  window.__replyDelay = 0;
+  // A test can set these for the next page load, before any of its scripts run.
+  try { Object.assign(window, JSON.parse(sessionStorage.getItem("__stub") || "{}")); sessionStorage.removeItem("__stub"); } catch {}
+  window.__hellos = [];
   window.addEventListener("message", (event) => {
     if (event.data?.source !== "challenge-sync-page" || event.data.type !== "HELLO") return;
     window.__log.push(["hello", now()]);
-    if (window.__reply) window.postMessage({ source: "challenge-sync-extension", ...window.__reply }, location.origin);
+    window.__hellos.push(event.data);
+    if (!window.__reply) return;
+    if (window.__present) window.postMessage({ source: "challenge-sync-extension", type: "PRESENT" }, location.origin);
+    const reply = { source: "challenge-sync-extension", ...window.__reply };
+    const answer = () => window.postMessage(reply, location.origin);
+    if (window.__replyDelay) window.setTimeout(answer, window.__replyDelay); else answer();
   });
+  // Whether the paused notice/banner was ever on screen, and in which states.
+  window.__seen = new Set();
+  new MutationObserver(() => {
+    for (const el of document.querySelectorAll(".paused-banner")) {
+      window.__seen.add((el.dataset.state || "notice") + ":" + el.querySelector(".paused-title")?.innerText);
+    }
+  }).observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
 })();`;
 
 const port = await devtoolsPort();
@@ -240,12 +268,17 @@ try {
   await simulated(5 * 60_000);
   entries = await log();
   check("a hidden tab sends no hellos and no /api/auth/me for 5 minutes", entries.length === hiddenAt, `${entries.length - hiddenAt} sent`);
+  // The extension never answered, so coming back reloads the tab once (Chrome only runs the
+  // bridge in pages loaded after the extension is switched back on); the new page asks both.
+  const navigationsBeforeReturn = navigations;
+  await evaluate(`window.__setVisibility("visible")`);
+  await until(`window.__log.some(([k]) => k === "hello") && window.__log.some(([k]) => k === "me")`, "a hello and a sign-in check after coming back", 10);
+  check("coming back to an unanswered tab reloads it once, and the page asks the extension and the site at once",
+    navigations === navigationsBeforeReturn + 1, `${navigations - navigationsBeforeReturn} navigations`);
+  await evaluate(`window.__setVisibility("hidden")`);
   await evaluate(`window.__setVisibility("visible")`);
   await sleep(30);
-  entries = await log();
-  const back = entries.slice(hiddenAt);
-  check("coming back to the tab asks the extension and the site at once",
-    count(back, "hello") >= 1 && count(back, "me") >= 1, JSON.stringify(back));
+  check("but only once: coming back again does not reload", navigations === navigationsBeforeReturn + 1);
   rates.hidden = { hellos: 0, me: 0 };
 
   // 3. "Linked" from the extension: the site is asked right after the reply.
@@ -269,15 +302,28 @@ try {
   check("no join code: 'You need your company's invite link'", /You need your company.s invite link/.test(text) && !/valid|went wrong/.test(text), text);
   text = await reply({ ...base04, inviteRefused: true }, { cookie: true });
   check("a refused code: says this invite link isn't valid or was replaced", /invite link isn.t valid.*replaced by a newer one/.test(text) && !/You need|went wrong/.test(text), text);
-  text = await reply({ ...base04, error: "Couldn't reach Challenge Sync just now. Trying again shortly.", errorCode: "blocked" }, { cookie: true });
-  check("a blocked request: the generic error with its reason, no word of invites",
-    /Something went wrong signing you in/.test(text) && /Reason: blocked/.test(text) && !/invite/i.test(text), text);
-  text = await reply({ ...base04, error: "Server error (500).", errorCode: "http-500" }, { cookie: true });
-  check("any other failure: the generic error with its status", /Something went wrong/.test(text) && /http-500/.test(text) && !/invite/i.test(text), text);
+  // Each failure the extension sorted (extension/errors.js) is shown as it said, with its code.
+  const categories = [
+    ["blocked", "Challenge Sync's host blocked this request for a moment (a security check on your network). We'll try again shortly."],
+    ["unreachable", "Can't reach the Challenge Sync server. Check your connection; we'll keep trying."],
+    ["server-500", "Challenge Sync's server had a problem (500). We'll try again shortly."],
+    ["account_deleted", "This Challenge Sync account has been removed. Ask an admin to restore it."],
+    ["linkedin-signed-out", "You're not logged in to LinkedIn in this browser. Log in to LinkedIn, then try again."],
+    ["unexpected-403", "Unexpected response from the server (status 403, application/json)."],
+    ["extension-error", "Challenge Sync hit an internal error: boom"],
+  ];
+  for (const [code, message] of categories) {
+    text = await reply({ ...base04, error: message, errorCode: code }, { cookie: true });
+    check(`${code}: says what failed, with its reason code, no word of invites`,
+      text.includes(message) && text.includes(`Reason: ${code}`) && !/invite|Something went wrong/i.test(text), text);
+  }
+  text = await reply({ linkedInSignedIn: true, linked: false, needsInvite: false, error: "Server error (500)." }, { cookie: true });
+  check("0.1.3's own error text, with no code: shown as its words, labelled as from 0.1.3",
+    /couldn.t sign you in: Server error \(500\)/.test(text) && /extension-0\.1\.3/.test(text) && !/invite/i.test(text), text);
   const legacy = { linkedInSignedIn: true, linked: false, needsInvite: true, error: null }; // 0.1.3's bridge
   text = await reply(legacy, { cookie: true });
-  check("0.1.3 saying needsInvite with a code in the browser: generic, not an invite message",
-    /Something went wrong/.test(text) && /legacy-extension/.test(text) && !/invite/i.test(text), text);
+  check("0.1.3 saying needsInvite with a code in the browser: says it can't tell why, not an invite message",
+    /doesn.t say why/.test(text) && /legacy-extension/.test(text) && !/invite/i.test(text), text);
   text = await reply(legacy, { cookie: false });
   check("0.1.3 saying needsInvite with no code: the invite-link message", /You need your company.s invite link/.test(text), text);
 
@@ -336,6 +382,108 @@ try {
     text === HOST_MESSAGE && blockedRequests.some((r) => r.startsWith("DELETE /api/system/members/")), text);
   check("with the Reload button in the app-wide notice",
     await evaluate(`[...document.querySelectorAll(".host-blocked button")].some((b) => b.innerText === "Reload")`));
+
+  // 7. A slow extension is not "paused"; "present" clears the wait; no answer at all is said as such.
+  await evaluate(`window.__setVisibility("hidden")`); // the admin page's own polling is not under test
+  await page.call("Network.clearBrowserCookies");
+  // Navigate with the stand-in extension configured from the first script on.
+  const navigateWith = async (path, stub) => {
+    await evaluate(`sessionStorage.setItem("__stub", ${JSON.stringify(JSON.stringify(stub))})`);
+    await page.call("Page.navigate", { url: base + path });
+    await until(`document.readyState === "complete" && Boolean(window.__log)`, `${path} to load`);
+  };
+  const fresh = ({ reply = null, present = false, delay = 0 } = {}) =>
+    navigateWith("/auth/login", { __reply: reply, __present: present, __replyDelay: delay });
+  const slow = { linkedInSignedIn: true, linked: false, needsInvite: false, error: null }; // 0.1.3 shape
+  await fresh({ reply: slow, delay: NO_ANSWER_MS / 2 });
+  await simulated(NO_ANSWER_MS * 3);
+  let seen = await evaluate(`[...window.__seen]`);
+  check("0.1.3 answering after 5 seconds: the paused notice never shows", seen.length === 0, JSON.stringify(seen));
+  check("and the page saw the answer", await evaluate(`document.querySelector(".start-step.done") !== null`));
+  await fresh({ reply: { ...slow, inviteRefused: false, errorCode: null, sync: null }, present: true, delay: NO_ANSWER_MS * 2 });
+  await simulated(NO_ANSWER_MS * 1.5);
+  seen = await evaluate(`[...window.__seen]`);
+  check("0.1.4 saying 'present' at once, its full answer 20 seconds later: no paused notice in between",
+    seen.length === 0 && (await evaluate(`document.querySelector(".start-step.done") !== null`)), JSON.stringify(seen));
+  await fresh();
+  const looking = await evaluate(`document.body.innerText.includes("Looking for the Challenge Sync extension")`);
+  await until(`document.querySelector(".paused-banner") !== null`, "the paused notice after NO_ANSWER_MS", 10);
+  check("no extension: 'Looking for…' first, then the paused notice", looking || (await evaluate(`[...window.__seen].length === 1`)));
+  await evaluate(`window.__reply = ${JSON.stringify(slow)}`);
+  await until(`document.querySelector(".paused-banner") === null`, "the notice to go at the first answer", 10);
+  check("the paused notice goes the moment any answer arrives", true);
+  // No answer at all from our server (the request fails before any response): its own notice.
+  blockRule = () => false;
+  await page.call("Fetch.disable");
+  await page.call("Network.enable");
+  await page.call("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await evaluate(`window.__setVisibility("hidden"); window.__setVisibility("visible")`);
+  text = await until(`document.querySelector(".server-unreachable")?.innerText`, "the can't-reach notice", 10);
+  check("a request that gets no answer says 'can't reach the server', not the host-block notice",
+    /Can.t reach the Challenge Sync server/.test(text) && !(await evaluate(`Boolean(document.querySelector(".host-blocked"))`)), text);
+  await page.call("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await evaluate(`window.__setVisibility("hidden"); window.__setVisibility("visible")`);
+  await until(`document.querySelector(".server-unreachable") === null`, "the can't-reach notice to clear once the server answers", 10);
+  check("and it clears by itself once a request is answered again", true);
+  await page.call("Fetch.enable", { patterns: [{ urlPattern: "*/api/*", requestStage: "Request" }] });
+
+  // 8. The signed-in banner. The system admin has never synced, so /api/auth/me says stale.
+  await evaluate(`window.__setVisibility("hidden")`); // this page would follow the sign-in to "/"
+  const login = await evaluate(`fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "sysadmin@demo.test", password: "demopassword" }) }).then((r) => r.status)`);
+  const openSignedIn = (reply) => navigateWith("/me", { __reply: reply });
+  await openSignedIn(null);
+  const stale = await evaluate(`fetch("/api/auth/me").then((r) => r.json())`);
+  check("sanity: the system admin is signed in and stale", login === 200 && stale.signedIn && stale.syncStale);
+  text = await until(`document.querySelector(".paused-banner[data-state=absent]")?.innerText`, "the re-enable banner", 10);
+  seen = await evaluate(`[...window.__seen]`);
+  check("no extension answering: 'Chrome paused Challenge Sync' with Re-enable, after a 'checking' state",
+    /Chrome paused Challenge Sync/.test(text) && /Re-enable the extension/.test(text) && seen.some((s) => s.startsWith("checking:")), JSON.stringify(seen));
+
+  const answering013 = { linkedInSignedIn: true, linked: true, needsInvite: false, error: null }; // 0.1.3's bridge
+  await openSignedIn(answering013);
+  text = await until(`document.querySelector(".paused-banner[data-state=on]")?.innerText`, "the 'on but not synced' banner", 10);
+  check("an answering 0.1.3: 'on but hasn't synced yet', press Sync now, no Re-enable",
+    /Challenge Sync is on but hasn.t synced yet/.test(text) && /press Sync now/.test(text) && !/Re-enable|paused/i.test(text), text);
+  seen = await evaluate(`[...window.__seen]`);
+  check("and it never said 'paused' first", !seen.some((s) => /paused/i.test(s)), JSON.stringify(seen));
+  check("the banner's hello says it comes from a signed-in page", await evaluate(`window.__hellos.every((h) => h.signedIn === true)`));
+  const bannerFrom = (await log()).length;
+  await simulated(10 * 60_000);
+  entries = (await log()).slice(bannerFrom);
+  const bannerRates = { hellos: count(entries, "hello"), me: count(entries, "me") };
+  const wantMe = 1 + Math.floor((10 * 60_000 - BANNER_ME_DELAYS_MS[0]) / BANNER_ME_DELAYS_MS[1]);
+  check("10 minutes of banner: no more hellos once answered, /api/auth/me on the gentle schedule",
+    bannerRates.hellos === 0 && Math.abs(bannerRates.me - wantMe) <= 2, `${JSON.stringify(bannerRates)}, schedule says ${wantMe} /me`);
+  await evaluate(`window.__setVisibility("hidden")`);
+  const hiddenFrom = (await log()).length;
+  await simulated(5 * 60_000);
+  check("a hidden tab with the banner asks nothing for 5 minutes", (await log()).length === hiddenFrom, `${(await log()).length - hiddenFrom} sent`);
+  await evaluate(`window.__setVisibility("visible")`);
+
+  await openSignedIn({ ...answering013, inviteRefused: false, errorCode: null, sync: "running", lastSyncAt: null, syncError: null, syncErrorCode: null });
+  text = await until(`document.querySelector(".paused-banner[data-state=syncing]")?.innerText`, "the 'Syncing…' banner", 10);
+  check("0.1.4 reporting a sync running: 'Syncing your stats…'", /Syncing your stats/.test(text) && !/Re-enable/.test(text), text);
+  await openSignedIn({ ...answering013, inviteRefused: false, errorCode: null, sync: "recently-tried", lastSyncAt: null,
+    syncError: "Couldn't read your LinkedIn data (LinkedIn answered 999). We'll try again later.", syncErrorCode: "linkedin-999" });
+  text = await until(`document.querySelector(".paused-banner[data-state=failed]")?.innerText`, "the 'last sync failed' banner", 10);
+  check("0.1.4 whose last sync failed: says what failed and its code, then Sync now",
+    /last sync failed/.test(text) && /LinkedIn answered 999/.test(text) && /linkedin-999/.test(text) && /Sync now/.test(text), text);
+
+  // The banner goes by itself once a sync lands: no focus, no visibility change, no reload.
+  await openSignedIn(answering013);
+  await until(`document.querySelector(".paused-banner[data-state=on]") !== null`, "the banner", 10);
+  const { cookies: jar } = await page.call("Network.getCookies", { urls: [base] });
+  const session = jar.find((c) => c.name === "session")?.value;
+  const post = (path, body, headers = {}) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const { syncToken } = await (await post("/api/auth/device/session", { sessionToken: session })).json();
+  const synced = await post("/api/sync", { profile: { followerCount: 100 }, posts: [] }, { authorization: `Bearer ${syncToken}` });
+  check("sanity: a sync for the admin lands", synced.status === 200);
+  const landedAt = (await log()).length;
+  await until(`document.querySelector(".paused-banner") === null`, "the banner to go by itself", 10);
+  entries = (await log()).slice(landedAt);
+  check("the banner disappears by itself within the first gentle refetch", count(entries, "me") >= 1 && count(entries, "me") <= 2, JSON.stringify(entries));
+  rates.banner10min = bannerRates;
 
   console.log(JSON.stringify({ requestsBySimulatedTime: rates }));
 } catch (err) {

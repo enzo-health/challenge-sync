@@ -67,27 +67,39 @@ function renderLinkView(link) {
 
 // The server sees every device, so its numbers win; local state is the fallback when it can't be
 // reached, and the popup says so rather than passing off one device's count as the account's.
-function renderStatusView(state, remote, dueInMs) {
+function renderStatusView(state, remote, dueInMs, sync, remoteError) {
   $("display-name").textContent = remote?.displayName || state.displayName || "—";
   const lastSync = remote?.lastSyncAt ? new Date(remote.lastSyncAt * 1000).toISOString() : state.lastSyncAt;
   $("last-sync").textContent = fmtTime(lastSync);
-  $("next-sync").textContent = fmtDueIn(dueInMs ?? 0);
+  // Opening the popup starts a due automatic sync (background.js startDueSync).
+  $("next-sync").textContent = sync === "running" ? "syncing now…" : fmtDueIn(dueInMs ?? 0);
   $("posts-count").textContent = remote ? remote.postsCount : (state.lastPostsIngested ?? 0);
   $("scope-line").hidden = Boolean(remote);
+  // Why the account-wide numbers are missing, as errors.js sorted it, rather than a guess.
+  $("scope-line").textContent = remoteError
+    ? `Showing this device only — ${remoteError.message} (${remoteError.code})`
+    : "Showing this device only — couldn't load the account-wide numbers.";
   const errLine = $("error-line");
   errLine.hidden = !state.lastError;
-  errLine.textContent = state.lastError || "";
+  errLine.textContent = state.lastError ? `${state.lastError}${state.lastErrorCode ? ` (${state.lastErrorCode})` : ""}` : "";
   $("diag-btn").classList.toggle("diagnostic-error", Boolean(state.lastError));
   $("diag-btn").textContent = state.lastError ? "Sync failed — open diagnostics" : "Open diagnostics";
 }
 
 async function render() {
-  const res = await send({ type: "STATUS" });
+  const res = await send({ type: "STATUS" }).catch((err) => ({ ok: false, error: String(err?.message || err), errorCode: "extension-unavailable" }));
+  if (!res?.ok || !res.state) {
+    // The worker failed outright: say what it said, never a blank popup.
+    $("link-view").hidden = false;
+    $("status-view").hidden = true;
+    renderLinkView({ error: res?.error || "Challenge Sync's background worker didn't answer.", errorCode: res?.errorCode || "extension-unavailable" });
+    return;
+  }
   const linked = Boolean(res.state.syncToken);
   $("link-view").hidden = linked;
   $("status-view").hidden = !linked;
   if (linked) {
-    renderStatusView(res.state, res.remote, res.dueInMs);
+    renderStatusView(res.state, res.remote, res.dueInMs, res.sync, res.remoteError);
   } else {
     renderLinkView(res.link || {});
   }
@@ -125,10 +137,12 @@ $("sync-btn").addEventListener("click", async () => {
   btn.textContent = "Syncing…";
   try {
     const res = await send({ type: "SYNC_NOW" });
-    if (!res.ok) throw new Error(res.error);
+    if (!res.ok) throw Object.assign(new Error(res.error), { code: res.errorCode });
     toast(`Synced ${res.postsIngested} post(s).`, "ok");
   } catch (e) {
-    toast(e.message || "Sync failed.", "err");
+    // The worker's message is already specific (errors.js); this only covers the worker not
+    // answering the popup at all.
+    toast(e.message ? `${e.message}${e.code ? ` (${e.code})` : ""}` : "Challenge Sync didn't answer. Close and reopen this menu.", "err");
   } finally {
     btn.disabled = false;
     btn.textContent = "Sync now";

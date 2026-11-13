@@ -13,13 +13,29 @@
 //
 // The app then says one thing about it, everywhere: HostBlockedBanner, with a Reload button, and
 // `errorText()` for the pages that show their own error next to a form.
+//
+// The same seam tells a request that got no answer at all (offline, DNS, a refused connection:
+// `fetch` throws) apart from a block: it rejects with ServerUnreachableError and the banner says
+// "Can't reach the Challenge Sync server" instead, until the next request that does get an answer.
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 export const HOST_BLOCKED_MESSAGE =
   "Our host paused requests from your network for a moment. Wait a minute, then reload the page.";
 
+export const UNREACHABLE_MESSAGE = "Can\u2019t reach the Challenge Sync server. Check your connection; we\u2019ll keep trying.";
+
 const EVENT = "challenge-sync:host-blocked";
+const REACH_EVENT = "challenge-sync:reachability";
+
+export class ServerUnreachableError extends Error {
+  readonly reason: unknown;
+  constructor(reason: unknown) {
+    super(UNREACHABLE_MESSAGE);
+    this.name = "ServerUnreachableError";
+    this.reason = reason;
+  }
+}
 
 export class HostBlockedError extends Error {
   readonly status: number;
@@ -42,10 +58,18 @@ export function isHostBlocked(res: Response): boolean {
 
 /** A page's own error text, unless the real reason is a host block. */
 export function errorText(error: unknown, fallback: string): string {
-  return error instanceof HostBlockedError ? HOST_BLOCKED_MESSAGE : fallback;
+  if (error instanceof HostBlockedError) return HOST_BLOCKED_MESSAGE;
+  if (error instanceof ServerUnreachableError) return UNREACHABLE_MESSAGE;
+  return fallback;
 }
 
 let blocked = false;
+let unreachable = false;
+function setUnreachable(value: boolean) {
+  if (unreachable === value) return;
+  unreachable = value;
+  window.dispatchEvent(new Event(REACH_EVENT));
+}
 let installed = false;
 
 function isOwnApi(input: RequestInfo | URL): boolean {
@@ -63,8 +87,20 @@ export function installHostBlockDetection(): void {
   installed = true;
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
-    const res = await nativeFetch(input, init);
-    if (isOwnApi(input) && isHostBlocked(res)) {
+    const own = isOwnApi(input);
+    let res: Response;
+    try {
+      res = await nativeFetch(input, init);
+    } catch (error) {
+      // A cancelled request (React Query aborting a superseded one) is not a network failure.
+      if (own && !(error instanceof DOMException && error.name === "AbortError")) {
+        setUnreachable(true);
+        throw new ServerUnreachableError(error);
+      }
+      throw error;
+    }
+    if (own) setUnreachable(false); // something answered
+    if (own && isHostBlocked(res)) {
       blocked = true;
       window.dispatchEvent(new Event(EVENT));
       throw new HostBlockedError(res.status);
@@ -93,15 +129,32 @@ export function useHostBlockRetryPolicy(): void {
   });
 }
 
-/** The app-wide notice, shown from the first blocked request until the page is reloaded. */
+/**
+ * The app-wide notice: a host block from the first blocked request until the page is reloaded;
+ * otherwise "can't reach the server" while requests get no answer at all.
+ */
 export function HostBlockedBanner() {
   const [shown, setShown] = useState(blocked);
+  const [offline, setOffline] = useState(unreachable);
   useEffect(() => {
     const show = () => setShown(true);
+    const reach = () => setOffline(unreachable);
     if (blocked) show();
+    reach();
     window.addEventListener(EVENT, show);
-    return () => window.removeEventListener(EVENT, show);
+    window.addEventListener(REACH_EVENT, reach);
+    return () => {
+      window.removeEventListener(EVENT, show);
+      window.removeEventListener(REACH_EVENT, reach);
+    };
   }, []);
+  if (!shown && offline) {
+    return (
+      <div className="notice err server-unreachable" role="alert">
+        <span>{UNREACHABLE_MESSAGE}</span>
+      </div>
+    );
+  }
   if (!shown) return null;
 
   return (

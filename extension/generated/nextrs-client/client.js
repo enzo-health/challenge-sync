@@ -43,6 +43,32 @@ export const signInDeviceWithSession = async (sessionDeviceRequest, options) => 
     const data = body ? JSON.parse(body) : {};
     return { data, status: res.status, headers: res.headers };
 };
+export const getStartWebSessionFromDeviceUrl = () => {
+    return `/api/auth/device/web-session`;
+};
+export const startWebSessionFromDevice = async (options) => {
+    const res = await fetch(getStartWebSessionFromDeviceUrl(), {
+        ...options,
+        method: 'POST'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getJoinWithExtensionUrl = () => {
+    return `/api/auth/extension/join`;
+};
+export const joinWithExtension = async (extensionJoinRequest, options) => {
+    const res = await fetch(getJoinWithExtensionUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(extensionJoinRequest)
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
 export const getJoinWithInviteUrl = () => {
     return `/api/auth/join`;
 };
@@ -310,6 +336,25 @@ export const getMemberDetail = async (id, params, options) => {
     const data = body ? JSON.parse(body) : {};
     return { data, status: res.status, headers: res.headers };
 };
+export const getGetStatsOverviewUrl = (params) => {
+    const normalizedParams = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString());
+        }
+    });
+    const stringifiedParams = normalizedParams.toString();
+    return stringifiedParams.length > 0 ? `/api/stats/overview?${stringifiedParams}` : `/api/stats/overview`;
+};
+export const getStatsOverview = async (params, options) => {
+    const res = await fetch(getGetStatsOverviewUrl(params), {
+        ...options,
+        method: 'GET'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
 export const getPushSyncUrl = () => {
     return `/api/sync`;
 };
@@ -319,6 +364,44 @@ export const pushSync = async (syncRequest, options) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(syncRequest)
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getListApiKeysUrl = () => {
+    return `/api/system/api-keys`;
+};
+export const listApiKeys = async (options) => {
+    const res = await fetch(getListApiKeysUrl(), {
+        ...options,
+        method: 'GET'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getCreateApiKeyUrl = () => {
+    return `/api/system/api-keys`;
+};
+export const createApiKey = async (createApiKeyRequest, options) => {
+    const res = await fetch(getCreateApiKeyUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createApiKeyRequest)
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getRevokeApiKeyUrl = (id) => {
+    return `/api/system/api-keys/${id}`;
+};
+export const revokeApiKey = async (id, options) => {
+    const res = await fetch(getRevokeApiKeyUrl(id), {
+        ...options,
+        method: 'DELETE'
     });
     const body = [204, 205, 304].includes(res.status) ? null : await res.text();
     const data = body ? JSON.parse(body) : {};
@@ -350,11 +433,118 @@ export const stopImpersonation = async (options) => {
     const data = body ? JSON.parse(body) : {};
     return { data, status: res.status, headers: res.headers };
 };
+export const getRegenerateJoinLinkUrl = () => {
+    return `/api/system/join-link`;
+};
+export const regenerateJoinLink = async (options) => {
+    const res = await fetch(getRegenerateJoinLinkUrl(), {
+        ...options,
+        method: 'POST'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getDeleteMemberUrl = (id) => {
+    return `/api/system/members/${id}`;
+};
+export const deleteMember = async (id, options) => {
+    const res = await fetch(getDeleteMemberUrl(id), {
+        ...options,
+        method: 'DELETE'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getSetMemberAdminUrl = (id) => {
+    return `/api/system/members/${id}/admin`;
+};
+export const setMemberAdmin = async (id, setAdminRequest, options) => {
+    const res = await fetch(getSetMemberAdminUrl(id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setAdminRequest)
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getRestoreMemberUrl = (id) => {
+    return `/api/system/members/${id}/restore`;
+};
+export const restoreMember = async (id, options) => {
+    const res = await fetch(getRestoreMemberUrl(id), {
+        ...options,
+        method: 'POST'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
 export const getGetSystemOverviewUrl = () => {
     return `/api/system/overview`;
 };
 export const getSystemOverview = async (options) => {
     const res = await fetch(getGetSystemOverviewUrl(), {
+        ...options,
+        method: 'GET'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getGetMemberReportUrl = (params) => {
+    const normalizedParams = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString());
+        }
+    });
+    const stringifiedParams = normalizedParams.toString();
+    return stringifiedParams.length > 0 ? `/api/v1/members?${stringifiedParams}` : `/api/v1/members`;
+};
+export const getMemberReport = async (params, options) => {
+    const res = await fetch(getGetMemberReportUrl(params), {
+        ...options,
+        method: 'GET'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getGetPostReportUrl = (params) => {
+    const normalizedParams = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString());
+        }
+    });
+    const stringifiedParams = normalizedParams.toString();
+    return stringifiedParams.length > 0 ? `/api/v1/posts?${stringifiedParams}` : `/api/v1/posts`;
+};
+export const getPostReport = async (params, options) => {
+    const res = await fetch(getGetPostReportUrl(params), {
+        ...options,
+        method: 'GET'
+    });
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+    const data = body ? JSON.parse(body) : {};
+    return { data, status: res.status, headers: res.headers };
+};
+export const getGetStatsReportUrl = (params) => {
+    const normalizedParams = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString());
+        }
+    });
+    const stringifiedParams = normalizedParams.toString();
+    return stringifiedParams.length > 0 ? `/api/v1/stats?${stringifiedParams}` : `/api/v1/stats`;
+};
+export const getStatsReport = async (params, options) => {
+    const res = await fetch(getGetStatsReportUrl(params), {
         ...options,
         method: 'GET'
     });

@@ -2,7 +2,9 @@
 # The local check pipeline (`just check`), in two tiers.
 #
 # FAST TIER, always, a couple of seconds: build once, then everything at the same time: typecheck,
-# cargo test, syntax checks, the refresh-window unit test, the extension's own sync code against a
+# cargo test, syntax checks, the refresh-window unit test, the extension's service worker under node
+# with chrome.* stand-ins (scripts/test-extension-worker.mjs: the sync alarm, one unattended sync
+# per site visit, the failure categories), the extension's own sync code against a
 # local server (scripts/test-extension-sync-e2e.mjs), the signed-out page's polling and the app's
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
 # ~8s, no extension and no LinkedIn), and every server e2e. Each server e2e starts
@@ -207,6 +209,7 @@ fi
 # --- checks that need no server binary ------------------------------------------------------------
 run syntax syntax
 run refresh-window node scripts/test-refresh-window.mjs
+run extension-worker node scripts/test-extension-worker.mjs
 run diff-check git diff --check
 
 # --- checks that run the server, and the live tier -----------------------------------------------

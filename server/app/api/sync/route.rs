@@ -4,7 +4,7 @@
 use axum::{Extension, Json};
 use http::HeaderMap;
 use linkedin_challenge_server::accounts::delete_posts;
-use linkedin_challenge_server::auth::member_from_bearer;
+use linkedin_challenge_server::auth::bearer_member;
 use linkedin_challenge_server::models::{Member, Post, PostComment, PostSnapshot, ProfileSnapshot};
 use linkedin_challenge_server::util::{now_unix, parse_iso8601};
 use linkedin_challenge_server::web::ApiError;
@@ -136,9 +136,7 @@ pub async fn post(
     headers: HeaderMap,
     Json(req): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, ApiError> {
-    let Some(member) = member_from_bearer(&mut db, &headers).await else {
-        return Err(ApiError::unauthorized("invalid or missing sync token"));
-    };
+    let member = bearer_member(&mut db, &headers).await?;
 
     let captured_at = now_unix(); // server clock is authoritative for windowing
 

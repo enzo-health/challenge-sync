@@ -7,7 +7,7 @@
 
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::auth::member_from_bearer;
+use linkedin_challenge_server::auth::bearer_member;
 use linkedin_challenge_server::dto::last_sync_at;
 use linkedin_challenge_server::models::Post;
 use linkedin_challenge_server::web::ApiError;
@@ -39,9 +39,7 @@ pub async fn get(
     Extension(mut db): Extension<Db>,
     headers: HeaderMap,
 ) -> Result<Json<SyncStatusResponse>, ApiError> {
-    let Some(member) = member_from_bearer(&mut db, &headers).await else {
-        return Err(ApiError::unauthorized("invalid or missing sync token"));
-    };
+    let member = bearer_member(&mut db, &headers).await?;
 
     let posts_count = Post::filter(Post::fields().member_id().eq(member.id))
         .exec(&mut db)
