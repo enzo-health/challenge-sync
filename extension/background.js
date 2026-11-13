@@ -13,7 +13,12 @@ import {
   signInFromSession,
 } from "./sync.js";
 import { SERVER_URL, LINKEDIN_ORIGIN } from "./config.js";
-import { LinkedInError, describeError } from "./errors.js";
+import { LinkedInError, SERVER_CODES, ServerError, describeError } from "./errors.js";
+
+const errorReply = (err) => {
+  const { code, message } = describeError(err);
+  return { error: message, errorCode: code };
+};
 
 const ALARM = "challenge-sync";
 // After a page or popup visit started an automatic sync, how long before another visit may start
@@ -90,6 +95,11 @@ let linking = null;
 // attempt, so retrying a known-bad code on every poll would be needless traffic to LinkedIn.
 // Set only from `inviteRefused`, never from a failure to reach the server.
 let refusedJoinCode = null;
+// When the server last said this LinkedIn identity is an admin's (`admin_use_password`). Admins
+// sign in with a password and link through that session (checked first, with no LinkedIn read),
+// so until then a join attempt would only ask LinkedIn again for the same refusal.
+let adminRefusedAt = 0;
+const ADMIN_RETRY_MS = 10 * 60_000;
 async function ensureLinked() {
   if (await isLinked()) return { ok: true };
   if (linking) return linking; // popup and alarm may both ask at once; link once
@@ -100,6 +110,9 @@ async function ensureLinked() {
       const joinCode = account ? null : await readJoinCode();
       if (!account && !joinCode) return { ok: false, needsInvite: true };
       if (!account && joinCode === refusedJoinCode) return { ok: false, inviteRefused: true };
+      if (!account && Date.now() - adminRefusedAt < ADMIN_RETRY_MS) {
+        return { ok: false, ...errorReply(new ServerError({ status: 403, code: SERVER_CODES.ADMIN_USE_PASSWORD })) };
+      }
       // Backing off from a host block: don't ask LinkedIn who you are for a join that can't land.
       assertServerReachable();
       const me = await getMe();
@@ -127,6 +140,7 @@ async function ensureLinked() {
       runSyncOnce({ manual: true }).catch(() => {});
       return { ok: true, data, justLinked: true };
     } catch (err) {
+      if (err?.code === SERVER_CODES.ADMIN_USE_PASSWORD) adminRefusedAt = Date.now();
       const { code, message } = describeError(err);
       await setState({ lastError: message, lastErrorCode: code });
       return { ok: false, error: message, errorCode: code };

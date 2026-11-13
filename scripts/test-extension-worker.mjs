@@ -152,6 +152,7 @@ try {
     ["sync_token_rejected", new ServerError({ status: 401, code: "sync_token_rejected" }), /no longer accepts this browser/],
     ["session_expired", new ServerError({ status: 401, code: "session_expired" }), /sign-in has expired/],
     ["admin_use_password", new ServerError({ status: 403, code: "admin_use_password" }), /Admins sign in with their email and password/],
+    ["impersonation_session", new ServerError({ status: 403, code: "impersonation_session" }), /viewing the Challenge Sync site as someone else/],
     ["unexpected-403", new ServerError({ status: 403, contentType: "application/json", serverMessage: "nope" }), /^Unexpected response from the server \(status 403, application\/json\)\.$/],
     ["unexpected-403", new ServerError({ status: 403, code: "some_future_code" }), /status 403.*some_future_code/],
     ["linkedin-signed-out", new LinkedInError("signed-out"), /not logged in to LinkedIn/],

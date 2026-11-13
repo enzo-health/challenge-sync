@@ -10,7 +10,7 @@
 //! reflecting arbitrary origins and opening a CSRF surface on every cookie-authed route.
 
 use axum::{Extension, Json};
-use linkedin_challenge_server::auth::{issue_device_token, member_from_session_token};
+use linkedin_challenge_server::auth::{issue_device_token, session_from_token};
 use linkedin_challenge_server::web::{ApiError, codes};
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -40,15 +40,26 @@ pub struct SessionDeviceResponse {
     responses(
         (status = 200, description = "Sync token issued for this device", body = SessionDeviceResponse),
         (status = 401, description = "No valid website session", body = ApiError),
+        (status = 403, description = "The session is an impersonation (\"View as\")", body = ApiError),
     ),
 )]
 pub async fn post(
     Extension(mut db): Extension<Db>,
     Json(req): Json<SessionDeviceRequest>,
 ) -> Result<Json<SessionDeviceResponse>, ApiError> {
-    let Some(member) = member_from_session_token(&mut db, &req.session_token).await else {
+    let Some(session) = session_from_token(&mut db, &req.session_token).await else {
         return Err(ApiError::unauthorized("not signed in").with_code(codes::SESSION_EXPIRED));
     };
+    // "View as" must not turn into a lasting, unmarked way in as its target: a device token here
+    // would outlive the impersonation and carry no trace of who was behind it.
+    if session.impersonator.is_some() {
+        return Err(ApiError::new(
+            http::StatusCode::FORBIDDEN,
+            "a \"View as\" session cannot sign in a device; stop viewing as this member first",
+        )
+        .with_code(codes::IMPERSONATION_SESSION));
+    }
+    let member = session.member;
 
     let secret = issue_device_token(&mut db, member.id).await?;
 

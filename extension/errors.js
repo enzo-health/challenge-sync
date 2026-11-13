@@ -20,6 +20,7 @@ export const SERVER_CODES = {
   LINKEDIN_TAKEN: "linkedin_taken",
   ADMIN_USE_PASSWORD: "admin_use_password",
   ALREADY_LINKED: "already_linked",
+  IMPERSONATION_SESSION: "impersonation_session",
 };
 
 /** What the server's refusal codes mean to a person. */
@@ -35,6 +36,8 @@ const REFUSALS = {
   admin_use_password:
     "Admins sign in with their email and password on the Challenge Sync site (/auth/password). Once you have, Challenge Sync connects from that sign-in by itself.",
   already_linked: "This Challenge Sync account is already linked to a different LinkedIn account.",
+  impersonation_session:
+    "You're viewing the Challenge Sync site as someone else (\u201cView as\u201d). Stop viewing as them, and Challenge Sync connects as you.",
 };
 
 export const UNREACHABLE_MESSAGE = "Can't reach the Challenge Sync server. Check your connection; we'll keep trying.";

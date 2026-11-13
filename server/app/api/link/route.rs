@@ -61,13 +61,14 @@ pub async fn post(
     if !member.linkedin_urn.starts_with("pending:") && member.linkedin_urn != req.member.member_urn {
         return Err(ApiError::conflict(
             "this account is already linked to a different LinkedIn account",
-        ));
+        )
+        .with_code(codes::ALREADY_LINKED));
     }
     // Same shape rule as the extension join: a `pending:` value is the placeholder of an unlinked
     // account and would let this one take over that placeholder.
     let urn = &req.member.member_urn;
     if urn.trim().is_empty() || urn.len() > 200 || urn.starts_with("pending:") {
-        return Err(ApiError::bad_request("a LinkedIn identity is required"));
+        return Err(ApiError::bad_request("a LinkedIn identity is required").with_code(codes::IDENTITY_REQUIRED));
     }
 
     // The URN is globally unique, so refuse to steal it from another account. Re-linking the same

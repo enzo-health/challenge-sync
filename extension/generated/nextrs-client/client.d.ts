@@ -1260,10 +1260,14 @@ export type signInDeviceWithSessionResponse401 = {
     data: ApiError;
     status: 401;
 };
+export type signInDeviceWithSessionResponse403 = {
+    data: ApiError;
+    status: 403;
+};
 export type signInDeviceWithSessionResponseSuccess = (signInDeviceWithSessionResponse200) & {
     headers: Headers;
 };
-export type signInDeviceWithSessionResponseError = (signInDeviceWithSessionResponse401) & {
+export type signInDeviceWithSessionResponseError = (signInDeviceWithSessionResponse401 | signInDeviceWithSessionResponse403) & {
     headers: Headers;
 };
 export type signInDeviceWithSessionResponse = (signInDeviceWithSessionResponseSuccess | signInDeviceWithSessionResponseError);

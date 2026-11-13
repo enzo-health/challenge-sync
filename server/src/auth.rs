@@ -373,6 +373,29 @@ pub async fn member_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<Memb
     (!member.is_deleted()).then_some(member)
 }
 
+/// Whether `/api/auth/signup` is open: always in debug builds (the e2e tests), and in a release
+/// build only with `ALLOW_PASSWORD_SIGNUP` set. Otherwise anyone on the internet could make an
+/// account and skip the company join link.
+pub fn password_signup_allowed() -> bool {
+    signup_allowed(cfg!(debug_assertions), std::env::var_os("ALLOW_PASSWORD_SIGNUP").is_some())
+}
+
+fn signup_allowed(debug_build: bool, allow_flag: bool) -> bool {
+    debug_build || allow_flag
+}
+
+#[cfg(test)]
+mod signup_gate_tests {
+    use super::signup_allowed;
+
+    #[test]
+    fn release_builds_refuse_signup_unless_allowed() {
+        assert!(!signup_allowed(false, false), "release build without the flag must refuse");
+        assert!(signup_allowed(false, true), "release build with ALLOW_PASSWORD_SIGNUP allows");
+        assert!(signup_allowed(true, false), "debug builds (the e2e tests) allow");
+    }
+}
+
 /// The member a device token or legacy member token names, or the coded refusal: an account an
 /// admin deleted says so (`account_deleted`), anything else is `sync_token_rejected`. Both are
 /// 401, as the bearer routes always answered, so older extensions recover the same way.

@@ -38,6 +38,12 @@ pub mod codes {
     pub const IDENTITY_REQUIRED: &str = "identity_required";
     /// The LinkedIn identity is already bound to a different account.
     pub const LINKEDIN_TAKEN: &str = "linkedin_taken";
+    /// The account is already bound to a different LinkedIn identity (`/api/link`).
+    pub const ALREADY_LINKED: &str = "already_linked";
+    /// The LinkedIn identity belongs to an admin, who must sign in with email and password.
+    pub const ADMIN_USE_PASSWORD: &str = "admin_use_password";
+    /// A "View as" session, which must not become a device token for its target.
+    pub const IMPERSONATION_SESSION: &str = "impersonation_session";
 }
 
 impl ApiError {

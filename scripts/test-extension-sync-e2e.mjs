@@ -275,6 +275,11 @@ try {
   check("a JSON 403 with an unknown code is NOT an invite refusal, and says its status and code",
     notInvite(o) && o.described.code === "unexpected-403" && /some_future_code/.test(o.described.message), JSON.stringify(o.described));
   o = await joinAnswer(() => Response.json({ error: "this account has been removed; ask an admin to restore it", code: "account_deleted" }, { status: 403 }));
+  const removedOutcome = o;
+  o = await joinAnswer(() => Response.json({ error: "admin accounts sign in on the website first", code: "admin_use_password" }, { status: 403 }));
+  check("an admin identity says to sign in with email and password, not an invite refusal",
+    notInvite(o) && o.described.code === "admin_use_password" && /email and password/.test(o.described.message), JSON.stringify(o.described));
+  o = removedOutcome;
   check("a removed account says so, not an invite refusal", notInvite(o) && o.described.code === "account_deleted" && o.err.status === 403);
   o = await joinAnswer(() => Response.json({ error: "database error" }, { status: 500 }));
   check("a 500 from the server is 'the server had a problem (500)'", notInvite(o) && o.described.code === "server-500" && /\(500\)/.test(o.described.message));

@@ -311,12 +311,15 @@ try {
     ["linkedin-signed-out", "You're not logged in to LinkedIn in this browser. Log in to LinkedIn, then try again."],
     ["unexpected-403", "Unexpected response from the server (status 403, application/json)."],
     ["extension-error", "Challenge Sync hit an internal error: boom"],
+    ["admin_use_password", "Admins sign in with their email and password on the Challenge Sync site (/auth/password). Once you have, Challenge Sync connects from that sign-in by itself."],
   ];
   for (const [code, message] of categories) {
     text = await reply({ ...base04, error: message, errorCode: code }, { cookie: true });
     check(`${code}: says what failed, with its reason code, no word of invites`,
       text.includes(message) && text.includes(`Reason: ${code}`) && !/invite|Something went wrong/i.test(text), text);
   }
+  check("an admin refusal links to the password sign-in",
+    await evaluate(`[...document.querySelectorAll(".auth-card .notice a")].some((a) => a.getAttribute("href") === "/auth/password")`));
   text = await reply({ linkedInSignedIn: true, linked: false, needsInvite: false, error: "Server error (500)." }, { cookie: true });
   check("0.1.3's own error text, with no code: shown as its words, labelled as from 0.1.3",
     /couldn.t sign you in: Server error \(500\)/.test(text) && /extension-0\.1\.3/.test(text) && !/invite/i.test(text), text);

@@ -7,7 +7,14 @@
 * a device sync token becomes a website session, and a bad token does not;
 * only an admin can make someone else an admin, and cannot remove their own access;
 * only an admin can generate the join link, and generating a new one retires the previous code
-  while the fixed `JOIN_CODE` keeps working.
+  while the fixed `JOIN_CODE` keeps working;
+* every refusal a client acts on carries its machine-readable `code` (join_code_required,
+  join_code_invalid, identity_required, sync_token_rejected, session_expired);
+* the join refuses an admin's identity (`admin_use_password`), so the join code plus an admin's
+  public LinkedIn id is not a way to become them;
+* `/api/link` refuses to re-point a linked account (`already_linked`) or to take a `pending:`
+  placeholder (`identity_required`);
+* a "View as" session cannot be turned into a device token (`impersonation_session`).
 """
 import http.cookiejar
 import json
@@ -74,14 +81,17 @@ with tempfile.TemporaryDirectory(prefix='extension-join-e2e-') as directory:
                'firstName': 'Ada', 'lastName': 'Lovelace', 'profileUrl': 'https://www.linkedin.com/in/ada-lovelace'}
         join = '/api/auth/extension/join'
 
-        anon.request(join, {'member': ada}, status=403)
-        anon.request(join, {'joinCode': 'wrong-code-000', 'member': ada}, status=403)
-        anon.request(join, {'joinCode': '', 'member': ada}, status=403)
+        no_code = anon.request(join, {'member': ada}, status=403)
+        wrong = anon.request(join, {'joinCode': 'wrong-code-000', 'member': ada}, status=403)
+        empty = anon.request(join, {'joinCode': '', 'member': ada}, status=403)
         check('joining needs the right company join code', True)
+        check('no code at all is join_code_required, a wrong one join_code_invalid',
+              no_code['code'] == 'join_code_required' and empty['code'] == 'join_code_required'
+              and wrong['code'] == 'join_code_invalid' and 'invite' in wrong['error'])
 
-        anon.request(join, {'joinCode': JOIN_CODE, 'member': {**ada, 'memberUrn': ''}}, status=400)
+        blank = anon.request(join, {'joinCode': JOIN_CODE, 'member': {**ada, 'memberUrn': ''}}, status=400)
         anon.request(join, {'joinCode': JOIN_CODE, 'member': {**ada, 'memberUrn': 'pending:admin@demo.test'}}, status=400)
-        check('an empty or placeholder identity is refused', True)
+        check('an empty or placeholder identity is refused', blank['code'] == 'identity_required')
 
         first = anon.request(join, {'joinCode': JOIN_CODE, 'member': ada})
         check('the first join creates the account from the LinkedIn name',
@@ -97,9 +107,11 @@ with tempfile.TemporaryDirectory(prefix='extension-join-e2e-') as directory:
               status['linked'] is True and status['displayName'] == 'Ada Lovelace')
 
         web = '/api/auth/device/web-session'
-        anon.request(web, method='POST', token='not-a-real-token', status=401)
+        bad = anon.request(web, method='POST', token='not-a-real-token', status=401)
         anon.request(web, method='POST', status=401)
-        check('a website session needs a valid device token', True)
+        check('a website session needs a valid device token', bad['code'] == 'sync_token_rejected')
+        expired = anon.request('/api/auth/device/session', {'sessionToken': 'not-a-session'}, status=401)
+        check('an unknown website session is session_expired', expired['code'] == 'session_expired')
 
         session = anon.request(web, method='POST', token=first['syncToken'])
         me = Client().request('/api/auth/me', cookie=session['sessionToken'])
@@ -121,6 +133,13 @@ with tempfile.TemporaryDirectory(prefix='extension-join-e2e-') as directory:
         admin.request(ada_admin, {'isAdmin': True}, method='PUT')
         me = Client().request('/api/auth/me', cookie=session['sessionToken'])
         check('an admin can make another member an admin', me['isSystemAdmin'] is True)
+
+        refused = anon.request(join, {'joinCode': JOIN_CODE, 'member': ada}, status=403)
+        check('the join refuses an admin identity with admin_use_password, not an invite problem',
+              refused['code'] == 'admin_use_password' and 'invite' not in refused['error'] and 'syncToken' not in refused)
+        linked_from_session = anon.request('/api/auth/device/session', {'sessionToken': session['sessionToken']})
+        check('an admin still links the extension from a website session',
+              linked_from_session['memberId'] == first['memberId'] and linked_from_session['syncToken'])
 
         admin.request(f'/api/system/members/{admin_id}/admin', {'isAdmin': False}, method='PUT', status=400)
         check('an admin cannot remove their own access', True)
@@ -156,6 +175,29 @@ with tempfile.TemporaryDirectory(prefix='extension-join-e2e-') as directory:
               admin.request('/api/system/overview')['joinCode'] == replacement)
         check('the fixed JOIN_CODE still works alongside the generated one',
               anon.request(join, {'joinCode': JOIN_CODE, 'member': ada})['memberId'] == first['memberId'])
+
+        # /api/link: an identity is bound once, and never to a placeholder.
+        fresh = Client()
+        fresh.request('/api/auth/signup', {'name': 'Link Tester', 'email': 'link.tester@enzo.health', 'password': 'LinkTester!123'})
+        fresh_session = next(c.value for c in fresh.jar if c.name == 'session')
+        fresh_token = anon.request('/api/auth/device/session', {'sessionToken': fresh_session})['syncToken']
+        link = lambda urn, status=200: anon.request('/api/link', {'member': {'memberUrn': urn, 'publicIdentifier': 'link-tester'}},
+                                                    token=fresh_token, status=status)
+        placeholder = link('pending:someone@enzo.health', status=400)
+        check('/api/link refuses a pending: placeholder with identity_required', placeholder['code'] == 'identity_required')
+        link('urn:li:fsd_profile:LINKTESTER')
+        repoint = link('urn:li:fsd_profile:SOMEONEELSE', status=409)
+        check('/api/link refuses to re-point a linked account (already_linked)', repoint['code'] == 'already_linked')
+        link('urn:li:fsd_profile:LINKTESTER')
+        check('re-linking the same identity stays fine', True)
+
+        # "View as" cannot become a device token for its target.
+        admin.request('/api/system/impersonate', {'memberId': joined['memberId']})
+        viewing = next(c.value for c in admin.jar if c.name == 'session')
+        check('sanity: the admin is viewing as Grace', Client().request('/api/auth/me', cookie=viewing)['displayName'] == 'Grace Hopper')
+        impersonated = anon.request('/api/auth/device/session', {'sessionToken': viewing}, status=403)
+        check('a "View as" session cannot sign in a device (impersonation_session)',
+              impersonated['code'] == 'impersonation_session' and 'syncToken' not in impersonated)
 
         for path in ('/auth/login', '/auth/password', f'/join/{JOIN_CODE}'):
             Client().request(path)

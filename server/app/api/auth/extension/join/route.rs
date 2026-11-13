@@ -10,6 +10,10 @@
 //! a browser claim an identity, which is the same trust the sync endpoint already places in the
 //! extension for every number it scores.
 //!
+//! **Admin accounts** are refused (403, `admin_use_password`): the identity is an unverified
+//! claim, so a join code plus an admin's public LinkedIn id must not be enough to become them.
+//! Admins sign in at `/auth/password`, and the extension then links from that session.
+//!
 //! **Deleted accounts.** Someone whose account an admin deleted is refused here (403) rather than
 //! signed in or given a fresh account, even holding a valid join code: the identity still belongs
 //! to the deleted account, and an admin can restore it.
@@ -90,7 +94,7 @@ pub async fn post(
     // The identity is an unverified claim, so a join code plus someone's LinkedIn id must never be
     // enough to become an admin: anyone could take the whole product. Admins sign in on the website
     // (`/auth/password`), and the extension then borrows that session (`/api/auth/device/session`).
-    if existing.as_ref().is_some_and(|member| member.is_system_admin) {
+    if existing.as_ref().is_some_and(is_admin) {
         return Err(admin_must_use_website());
     }
     let (member, created) = match existing {
@@ -135,7 +139,7 @@ pub async fn post(
                     if member.is_deleted() {
                         return Err(removed());
                     }
-                    if member.is_system_admin {
+                    if is_admin(&member) {
                         return Err(admin_must_use_website());
                     }
                     (member, false)
@@ -166,12 +170,19 @@ fn removed() -> ApiError {
     .with_code(codes::ACCOUNT_DELETED)
 }
 
-/// The refusal for a LinkedIn identity that belongs to an admin account.
+/// Either admin flag: a company admin (`is_admin`) or a system admin.
+fn is_admin(member: &Member) -> bool {
+    member.is_admin || member.is_system_admin
+}
+
+/// The refusal for a LinkedIn identity that belongs to an admin account. Coded, so the extension
+/// and the site say "admins sign in with their email and password" and never an invite problem.
 fn admin_must_use_website() -> ApiError {
     ApiError::new(
         StatusCode::FORBIDDEN,
         "admin accounts sign in on the website first; the extension then links from that session",
     )
+    .with_code(codes::ADMIN_USE_PASSWORD)
 }
 
 /// The LinkedIn name, then the public identifier, then a neutral fallback.

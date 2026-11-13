@@ -54,6 +54,7 @@ original proposal, kept for the reasoning.
   | server refusal `sync_token_rejected` (after the session fallback failed) | `sync_token_rejected` | The server no longer accepts this browser's link to your account. Open the Challenge Sync site to sign in again. |
   | server refusal `session_expired` | (treated as no session: link from the join code instead) | — |
   | server refusal `admin_use_password` | `admin_use_password` | Admins sign in with their email and password on the Challenge Sync site (/auth/password). … |
+  | server refusal `impersonation_session` | `impersonation_session` | You're viewing the Challenge Sync site as someone else ("View as"). Stop viewing as them, and Challenge Sync connects as you. |
   | server refusal `identity_required`, `linkedin_taken`, `already_linked` | that code | a sentence for each |
   | LinkedIn: no session cookie, or LinkedIn said 401/403 | `linkedin-signed-out` | You're not logged in to LinkedIn in this browser. … |
   | LinkedIn: another status | `linkedin-<status>` | Couldn't read your LinkedIn data (LinkedIn answered 999). … |
@@ -130,7 +131,19 @@ original proposal, kept for the reasoning.
 - **Admins.** The system-admin flag is "admin". An admin can grant or remove it for others from
   the All users page, which also shows, generates and replaces the join link. The first admin is set in the database.
 - **Kept:** the email and password login, at `/auth/password`, for accounts that have one. The
-  signup page is gone; the signup API remains for the tests and is still limited to enzo.health.
+  signup page is gone; the signup API remains for the tests, is still limited to enzo.health, and
+  answers 404 in release builds unless `ALLOW_PASSWORD_SIGNUP` is set (`auth::password_signup_allowed`).
+- **Admins sign in with a password.** The LinkedIn identity is an unverified claim, so the join
+  refuses an identity that belongs to an admin (`is_admin` or `is_system_admin`): 403
+  `admin_use_password`. Otherwise the join code plus an admin's public LinkedIn id would be a sync
+  token, then a session, as that admin. Admins sign in at `/auth/password`, and the extension then
+  links from that session (`/api/auth/device/session`); the get-started page links there. After
+  such a refusal the extension does not ask LinkedIn again for 10 minutes.
+- **An identity is bound once.** `/api/link` refuses to re-point an account already linked to a
+  different LinkedIn id (409 `already_linked`) and refuses `pending:` placeholders (400
+  `identity_required`).
+- **"View as" stays a view.** `/api/auth/device/session` refuses an impersonation session (403
+  `impersonation_session`), so it cannot become a lasting, unmarked device token as the target.
 - **Deleting an account** (for people who have left). An admin uses "Delete account" in a row's
   menu on the All users page (`DELETE /api/system/members/{id}`, in `server/src/accounts.rs`). It
   marks the account deleted (`members.deleted_at`) and removes nothing the person recorded: posts

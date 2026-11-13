@@ -305,6 +305,12 @@ export function GetStarted({ invited = false }: { invited?: boolean }) {
         {!hostBlocked && problem.kind === "error" && (
           <div className="notice err" role="alert">
             {problem.message}
+            {problem.code === "admin_use_password" && (
+              <>
+                {" "}
+                <a href="/auth/password">Sign in with your email and password</a>
+              </>
+            )}
             <div className="small sign-in-reason">Reason: {problem.code}</div>
           </div>
         )}
