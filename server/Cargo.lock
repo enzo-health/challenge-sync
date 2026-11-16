@@ -2106,6 +2106,7 @@ name = "linkedin-challenge-server"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "async-trait",
  "axum",
  "dotenvy",
  "http",
@@ -2114,10 +2115,13 @@ dependencies = [
  "serde",
  "serde_json",
  "toasty",
+ "toasty-core",
  "tokio",
  "tower",
  "tower-http",
  "tower-livereload",
+ "tracing",
+ "tracing-subscriber",
  "utoipa",
  "vercel_runtime",
 ]

@@ -14,6 +14,7 @@ include!(concat!(env!("OUT_DIR"), "/nextrs_routes.rs"));
 
 #[tokio::main]
 async fn main() -> Result<(), vercel_runtime::Error> {
+    linkedin_challenge_server::init_tracing();
     let db = models::connect().await;
 
     // Bearer-authenticated, never cookie-authenticated — see the CORS note in main.rs.

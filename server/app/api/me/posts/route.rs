@@ -26,22 +26,24 @@ pub struct MyPostsQuery {
 #[nextrs::api(operation_id = "getMyPosts")]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     Query(q): Query<MyPostsQuery>,
 ) -> Result<Json<PostPage>, ApiError> {
-    let user = require_member(&mut db, &headers).await?;
+    let user = timing.span("session", require_member(&mut db, &headers)).await?;
     let sort = q.sort.as_deref().unwrap_or("newest");
     if !["newest", "oldest", "impressions", "reactions", "comments", "reposts", "sends", "saves"]
         .contains(&sort)
     {
         return Err(ApiError::bad_request("invalid post sort"));
     }
-    Ok(Json(user_posts(
+    let posts = user_posts(
         &mut db,
         user.id,
         q.filter.as_deref(),
         sort,
         q.page.unwrap_or(1).max(1),
         q.page_size.unwrap_or(50).clamp(1, 100),
-    ).await?))
+    );
+    Ok(Json(timing.span("db", posts).await?))
 }

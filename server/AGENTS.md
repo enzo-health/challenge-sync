@@ -78,6 +78,14 @@ The same data fires as `tracing` events (`RUST_LOG=nextrs=info` locally;
 Vercel function logs in production). Full guide, including OpenTelemetry
 export: <https://nextrs-docs.vercel.app/docs/telemetry>
 
+In this app: `session` (cookie/bearer lookup), `auth` (reporting API key or
+admin), and `db` / `db-<what>` (queries) are already wrapped in the busy API
+handlers and the page middlewares. A signed-out request does no I/O, so `0.0`
+there is real, not a broken clock. Every query is also timed at the driver
+(`src/db_timing.rs`): `RUST_LOG=app::db=debug` logs each one, and operations
+over 250 ms log a warning by default. Those driver events can't reach
+`Server-Timing`: Toasty runs queries on its own connection task.
+
 ## Deploys are prebuilt
 
 Git auto-builds are OFF (`vercel.json` sets `git.deploymentEnabled: false`);

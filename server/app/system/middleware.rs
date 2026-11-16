@@ -13,7 +13,8 @@ pub async fn handle(req: http::Request<axum::body::Body>) -> MiddlewareResult {
     };
 
     let mut db = db;
-    if current_system_admin(&mut db, req.headers()).await.is_none() {
+    let timing = nextrs::Timing::from_extensions(req.extensions());
+    if timing.span("session", current_system_admin(&mut db, req.headers())).await.is_none() {
         return MiddlewareResult::response(Redirect::to("/").into_response());
     }
     MiddlewareResult::next(req)

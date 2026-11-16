@@ -378,18 +378,28 @@ struct Tally {
 /// Queries: the posts that could have gained anything in this period or the previous one and
 /// only their snapshots (via [`Dataset::load_posted_between`], from the previous period's start
 /// minus the refresh window), the accounts table, and the profile readings for the last sync.
+///
+/// `timing` splits the queries out in the response's `Server-Timing` (`db-posts`, `db-members`,
+/// `db-profiles`); whatever the handler spends beyond them is the in-memory tally.
 pub async fn stats_overview(
     db: &mut Db,
+    timing: &nextrs::Timing,
     period: &StatsPeriod,
     you: Option<i64>,
     now: i64,
 ) -> ApiResult<StatsOverview> {
     let previous_start = period.previous_start();
     let load_from = previous_start - REFRESH_WINDOW_DAYS * DAY;
-    let data = Dataset::load_posted_between(db, load_from, period.end, None).await?;
+    let data = timing
+        .span("db-posts", Dataset::load_posted_between(db, load_from, period.end, None))
+        .await?;
 
-    let accounts: HashMap<i64, Member> =
-        Member::all().exec(&mut *db).await?.into_iter().map(|m| (m.id, m)).collect();
+    let accounts: HashMap<i64, Member> = timing
+        .span("db-members", Member::all().exec(&mut *db))
+        .await?
+        .into_iter()
+        .map(|m| (m.id, m))
+        .collect();
     let you_member = match you {
         Some(id) => Some(accounts.get(&id).ok_or_else(|| ApiError::not_found("member not found"))?),
         None => None,
@@ -542,7 +552,7 @@ pub async fn stats_overview(
 
     // "Last synced" is the newest profile reading, which every successful sync writes (the same
     // reading the members report uses). Deleted accounts cannot sync, so they are left out.
-    let readings = profile_readings(db).await?;
+    let readings = timing.span("db-profiles", profile_readings(db)).await?;
     let last_sync = readings
         .last_synced
         .iter()

@@ -31,11 +31,12 @@ pub struct MemberDetailQuery {
 #[nextrs::api(operation_id = "getMemberDetail")]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     Path(id): Path<i64>,
     Query(q): Query<MemberDetailQuery>,
 ) -> Result<Json<MemberDetail>, ApiError> {
-    let member = require_challenge_user(&mut db, &headers).await?;
+    let member = timing.span("session", require_challenge_user(&mut db, &headers)).await?;
     let sort = q.sort.as_deref().unwrap_or("newest");
     if !["newest", "oldest", "impressions", "reactions", "comments", "reposts", "sends", "saves"]
         .contains(&sort)
@@ -43,7 +44,7 @@ pub async fn get(
         return Err(ApiError::bad_request("invalid post sort"));
     }
     let page_size = q.page_size.unwrap_or(50).clamp(1, 100);
-    Ok(Json(member_detail(
+    let detail = member_detail(
         &mut db,
         &member,
         q.challenge_id,
@@ -52,5 +53,6 @@ pub async fn get(
         sort,
         q.page.unwrap_or(1).max(1),
         page_size,
-    ).await?))
+    );
+    Ok(Json(timing.span("db", detail).await?))
 }

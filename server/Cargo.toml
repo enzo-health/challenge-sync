@@ -33,6 +33,11 @@ nextrs = { git = "https://github.com/drewhirschi/nextrs.git", rev = "3ca0527", f
 # reach hosted Turso — and a file database on a serverless function loses writes silently, so
 # production needs a real server. Keeping both means dev keeps its zero-setup file.
 toasty = { version = "0.7", features = ["turso", "postgresql"] }
+# The driver traits, for the timing wrapper in src/db_timing.rs (same version Toasty uses).
+toasty-core = "0.7"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = "0.8"
 http = "1"
 tower = "0.5"
