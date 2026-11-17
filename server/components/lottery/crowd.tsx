@@ -31,6 +31,8 @@ export function Crowd({
   const material = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.7 }), []);
   useEffect(() => () => material.dispose(), [material]);
   const slump = useRef(0);
+  // Each person's current lift, smoothed so the bobs settle instead of snapping when the wheel stops.
+  const lifts = useRef<Float32Array>(new Float32Array(0));
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   useLayoutEffect(() => {
@@ -49,6 +51,7 @@ export function Crowd({
     const target = sh.phase === "won" ? 1 : 0;
     slump.current = sh.reducedMotion ? target : slump.current + (target - slump.current) * (1 - Math.exp(-4 * dt));
     const sl = slump.current;
+    if (lifts.current.length !== people.length) lifts.current = new Float32Array(people.length);
     for (let i = 0; i < people.length; i++) {
       const spot = spots[i];
       const look = looks[i];
@@ -57,15 +60,18 @@ export function Crowd({
       let stretch = 1;
       if (!sh.reducedMotion) {
         if (sh.phase === "spinning") {
-          // Anticipation bobs, quicker as the wheel slows.
-          const period = 0.7 - 0.3 * sh.progress;
-          const k = hop(((t + look.phase) % period) / period);
+          // Anticipation bobs, quicker as the wheel slows: the phase is the stage's integrated beat
+          // (see Show.hopBeat), never t % period, whose rate jumps as the period changes.
+          const beat = (((sh.crowdBeat + look.phase / (Math.PI * 2)) % 1) + 1) % 1;
+          const k = hop(beat);
           lift = k.lift * 0.12 * (0.4 + sh.progress);
           stretch = k.stretch;
         } else if (sh.phase === "ready") {
           stretch = 1 + 0.03 * Math.sin(t * 1.8 + look.phase);
         }
       }
+      lifts.current[i] = sh.reducedMotion ? lift : lifts.current[i] + (lift - lifts.current[i]) * (1 - Math.exp(-14 * dt));
+      lift = lifts.current[i];
       stretch *= 1 - 0.12 * sl;
       const h = look.height * stretch;
       const sc = scale;

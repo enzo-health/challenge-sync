@@ -78,7 +78,7 @@ export function Avatar({ name, postCount, look, position, scale, labelLift, crow
   const frown = useRef<THREE.Mesh>(null);
   const crown = useRef<THREE.Group>(null);
   const halo = useRef<THREE.Group>(null);
-  const pose = useRef({ yaw: 0, pitch: 0, armUp: 0.25, armFwd: 0, slump: 1 });
+  const pose = useRef({ yaw: 0, pitch: 0, armUp: 0.25, armFwd: 0, slump: 1, lift: 0, stretch: 1 });
 
   const h = look.height;
   const bodyCenter = 0.1 + 0.46 * h;
@@ -123,20 +123,20 @@ export function Avatar({ name, postCount, look, position, scale, labelLift, crow
       }
     } else if (sh.phase === "spinning") {
       const p = sh.progress;
+      // The hop phase comes from the stage's integrated beat (see Show.hopBeat), never t % period.
+      const beat = (((sh.hopBeat + ph / (Math.PI * 2)) % 1) + 1) % 1;
       // Watch the wheel: turn toward the middle and look up.
       yaw = Math.max(-0.7, Math.min(0.7, -x * 0.12));
       pitch = -0.32;
       if (p < 0.7) {
-        const period = 0.5;
-        const k = hop(((t + ph) % period) / period);
+        const k = hop(beat);
         lift = k.lift * 0.18;
         stretch = k.stretch;
         armUp = 1.6 + 0.6 * Math.sin(t * 10 + ph);
       } else {
         // Anticipation: hands together, smaller and quicker hops as the wheel creeps to a stop.
         const tension = (p - 0.7) / 0.3;
-        const period = 0.42 - 0.18 * tension;
-        const k = hop(((t + ph) % period) / period);
+        const k = hop(beat);
         lift = k.lift * (0.12 - 0.07 * tension);
         stretch = k.stretch;
         armUp = 0.5;
@@ -179,6 +179,11 @@ export function Avatar({ name, postCount, look, position, scale, labelLift, crow
     P.pitch = damp(P.pitch, pitch, 6, dt);
     P.armUp = damp(P.armUp, armUp, 10, dt);
     P.armFwd = damp(P.armFwd, armFwd, 10, dt);
+    // Lightly smoothed so a change of phase (the wheel stopping) blends instead of snapping.
+    P.lift = sh.reducedMotion ? lift : damp(P.lift, lift, 22, dt);
+    P.stretch = sh.reducedMotion ? stretch : damp(P.stretch, stretch, 22, dt);
+    lift = P.lift;
+    stretch = P.stretch;
     if (mover.current) {
       mover.current.position.y = lift;
       const wide = 1 / Math.sqrt(stretch);

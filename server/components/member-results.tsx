@@ -2,9 +2,9 @@
 // behind it, grouped into the same weekly buckets the scoring uses. Shared by "My results" and
 // the leaderboard drill-in — the manifest wants those to be the same view of the same data.
 import { useGetMemberDetail, useGetMyPosts } from "@linkedin-challenge/client/react-query";
-import type { PostStat, WeekGroup } from "@linkedin-challenge/client";
+import type { MemberDetail, PostStat, WeekGroup } from "@linkedin-challenge/client";
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { fmtInt, fmtNum, fmtDate, initials } from "./format";
 
 const PAGE_SIZE = 50;
@@ -280,11 +280,14 @@ export function MemberResults({
   challengeId,
   backHref,
   backLabel,
+  controls,
 }: {
   memberId: number;
   challengeId?: number;
   backHref?: string;
   backLabel?: string;
+  /** Extra controls under the header, given the loaded detail (the member page's admin bits). */
+  controls?: (detail: MemberDetail) => ReactNode;
 }) {
   const [showMedia, setShowMedia] = useState(false);
   const [{ filter, sort, page }, setParams] = useQueryStates({
@@ -336,6 +339,8 @@ export function MemberResults({
           </a>
         </p>
       )}
+
+      {controls?.(detail)}
 
       <MediaToggle checked={showMedia} onChange={setShowMedia} />
 

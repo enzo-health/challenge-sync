@@ -17,6 +17,12 @@
 //! reshare) whose LinkedIn creation time falls in the week. A post stored without a creation time
 //! (0) is not dated to any week. Everyone else who had an account by the week's end and
 //! is not deleted is the week's `audience`.
+//!
+//! **Who is left out.** An admin can exclude a member from the draw (`Member::lottery_excluded`,
+//! set with `PUT /api/admin/lottery/exclusions/{memberId}`), e.g. the organisers. Someone excluded
+//! who posted that week is not an entrant: they are in the audience with `excluded` set, so the
+//! page can say openly who is not in the draw. Someone excluded who did not post is ordinary
+//! audience. The flag is read as it is now, not as it was that week.
 
 use std::collections::HashMap;
 
@@ -168,6 +174,9 @@ pub struct LotteryEntrant {
 pub struct LotteryAudienceMember {
     pub member_id: i64,
     pub display_name: String,
+    /// True for someone who posted an original that week but is excluded from the draw by an
+    /// admin; false for everyone who simply did not post.
+    pub excluded: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -192,8 +201,9 @@ pub struct LotteryWeekEntrants {
     pub next_week: Option<String>,
     /// One entry per person, sorted by name (case-insensitive), then id.
     pub entrants: Vec<LotteryEntrant>,
-    /// Everyone else that week: not deleted, with an account by the week's end, and no
-    /// original post in it (someone who only reshared is here). Sorted like `entrants`.
+    /// Everyone else that week: not deleted, with an account by the week's end, and either no
+    /// original post in it (someone who only reshared is here) or excluded from the draw
+    /// (`excluded`). Sorted like `entrants`.
     pub audience: Vec<LotteryAudienceMember>,
 }
 
@@ -208,11 +218,17 @@ pub async fn lottery_entrants(
     week: LotteryWeek,
     now: i64,
 ) -> ApiResult<LotteryWeekEntrants> {
-    let members: Vec<Member> = Member::all()
+    let members: Vec<Person> = Member::all()
         .exec(&mut *db)
         .await?
         .into_iter()
         .filter(|member| !member.is_deleted())
+        .map(|member| Person {
+            id: member.id,
+            display_name: member.display_name,
+            created_at: member.created_at,
+            excluded: member.lottery_excluded,
+        })
         .collect();
 
     let created = Post::fields().created_at();
@@ -230,25 +246,7 @@ pub async fn lottery_entrants(
         *counts.entry(post.member_id).or_default() += 1;
     }
 
-    let mut entrants = Vec::new();
-    let mut audience = Vec::new();
-    for member in members {
-        match counts.get(&member.id) {
-            Some(&post_count) => entrants.push(LotteryEntrant {
-                member_id: member.id,
-                display_name: member.display_name,
-                post_count,
-            }),
-            // Someone whose account did not exist yet that week was not in its audience.
-            None if member.created_at < week.ends_at => audience.push(LotteryAudienceMember {
-                member_id: member.id,
-                display_name: member.display_name,
-            }),
-            None => {}
-        }
-    }
-    entrants.sort_by(|a, b| by_name((&a.display_name, a.member_id), (&b.display_name, b.member_id)));
-    audience.sort_by(|a, b| by_name((&a.display_name, a.member_id), (&b.display_name, b.member_id)));
+    let (entrants, audience) = split_draw(members, &counts, week);
 
     let current = LotteryWeek::containing(now);
     let next = week.next();
@@ -264,6 +262,50 @@ pub async fn lottery_entrants(
         entrants,
         audience,
     })
+}
+
+/// What the draw needs to know about a (not deleted) member.
+struct Person {
+    id: i64,
+    display_name: String,
+    created_at: i64,
+    /// `Member::lottery_excluded`.
+    excluded: bool,
+}
+
+/// Split the week's members into entrants and audience (see the module docs), each sorted by name.
+/// `counts` is original posts in the week per member id.
+fn split_draw(
+    members: Vec<Person>,
+    counts: &HashMap<i64, usize>,
+    week: LotteryWeek,
+) -> (Vec<LotteryEntrant>, Vec<LotteryAudienceMember>) {
+    let mut entrants = Vec::new();
+    let mut audience = Vec::new();
+    for member in members {
+        match counts.get(&member.id) {
+            Some(_) if member.excluded => audience.push(LotteryAudienceMember {
+                member_id: member.id,
+                display_name: member.display_name,
+                excluded: true,
+            }),
+            Some(&post_count) => entrants.push(LotteryEntrant {
+                member_id: member.id,
+                display_name: member.display_name,
+                post_count,
+            }),
+            // Someone whose account did not exist yet that week was not in its audience.
+            None if member.created_at < week.ends_at => audience.push(LotteryAudienceMember {
+                member_id: member.id,
+                display_name: member.display_name,
+                excluded: false,
+            }),
+            None => {}
+        }
+    }
+    entrants.sort_by(|a, b| by_name((&a.display_name, a.member_id), (&b.display_name, b.member_id)));
+    audience.sort_by(|a, b| by_name((&a.display_name, a.member_id), (&b.display_name, b.member_id)));
+    (entrants, audience)
 }
 
 /// Name order, case-insensitive, then id so equal names keep a stable order.
@@ -367,6 +409,30 @@ mod tests {
         let error = resolve_week(Some("2026-11-23"), now).unwrap_err();
         assert!(error.contains("has not started yet"), "{error}");
         assert!(error.contains("2026-11-16"), "{error}");
+    }
+
+    #[test]
+    fn an_excluded_poster_is_in_the_audience_marked_excluded() {
+        let w = week("2026-11-09");
+        let person = |id: i64, name: &str, excluded: bool| Person {
+            id,
+            display_name: name.to_string(),
+            created_at: w.starts_at - DAY,
+            excluded,
+        };
+        let members = vec![
+            person(1, "Ann Posts", false),
+            person(2, "Org Organiser", true),
+            person(3, "Quiet Organiser", true),
+            person(4, "Bob Quiet", false),
+        ];
+        let counts = HashMap::from([(1, 2), (2, 3)]);
+        let (entrants, audience) = split_draw(members, &counts, w);
+        assert_eq!(entrants.iter().map(|e| e.member_id).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(entrants[0].post_count, 2);
+        let audience: Vec<(i64, bool)> = audience.iter().map(|a| (a.member_id, a.excluded)).collect();
+        // Sorted by name; only someone excluded who posted is marked.
+        assert_eq!(audience, vec![(4, false), (2, true), (3, false)]);
     }
 
     #[test]

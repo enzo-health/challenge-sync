@@ -6,15 +6,25 @@ import * as THREE from "three";
 import { Avatar } from "./avatar";
 import { Confetti, type Volley } from "./confetti";
 import { Crowd } from "./crowd";
-import { landingRotation, sliceUnderPointer, spinProgress, spinRotation, type SpinPlan } from "./draw";
-import { layoutFor, type Layout } from "./layout";
+import { easeInOutSine, landingRotation, sliceUnderPointer, spinProgress, spinRotation, type SpinPlan } from "./draw";
+import { layoutFor, type Layout, type Spot } from "./layout";
 import { lookFor } from "./look";
 import { Scenery, surfaceAt } from "./scenery";
 import type { LotteryStageProps, Show, ShowPhase, SpinRequest, StageEntrant, StagePerson } from "./types";
 import { Wheel } from "./wheel";
 
-/** Keeps the whole set in frame at any canvas size: a slightly raised, straight-on view. */
-function FitCamera({ points, bottomInset }: { points: Layout["frame"]; bottomInset: number }) {
+/** The fitted wide shot, which the camera rig starts from and comes back to. */
+interface BasePose {
+  ready: boolean;
+  position: THREE.Vector3;
+  aim: THREE.Vector3;
+}
+
+/**
+ * Computes the wide shot that keeps the whole set in frame at any canvas size (a slightly raised,
+ * straight-on view) and places the camera there; `CameraRig` moves it from there on a win.
+ */
+function FitCamera({ points, bottomInset, base }: { points: Layout["frame"]; bottomInset: number; base: RefObject<BasePose> }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
@@ -69,7 +79,123 @@ function FitCamera({ points, bottomInset }: { points: Layout["frame"]; bottomIns
       aim.addScaledVector(up, ((e.maxY + e.minY) / 2 - (floor + 0.95) / 2) * halfH);
     }
     fit();
-  }, [camera, width, height, points, bottomInset]);
+    base.current.position.copy(camera.position);
+    base.current.aim.copy(aim);
+    base.current.ready = true;
+  }, [camera, width, height, points, bottomInset, base]);
+  return null;
+}
+
+/** Hops per second for the stage avatars while the wheel spins: brisk, then quicker as it slows. */
+function stageHopRate(progress: number): number {
+  if (progress < 0.7) return 2;
+  return 1 / (0.42 - 0.18 * ((progress - 0.7) / 0.3));
+}
+
+/** Hops per second for the crowd's anticipation bobs, quickening through the spin. */
+function crowdHopRate(progress: number): number {
+  return 1 / (0.7 - 0.3 * progress);
+}
+
+/**
+ * Where a winner ends up: they step out to the open strip at the front of the board, in their own
+ * column, so nobody in a row in front of them hides them in the close-up.
+ */
+export function winnerSpot(layout: Layout, spot: Spot): { x: number; y: number; z: number } {
+  const z = Math.min(layout.board.maxZ - 0.3, layout.rows[0].z + 0.8);
+  return { x: spot.x, y: surfaceAt(layout, spot.x, z), z };
+}
+
+const damp = (from: number, to: number, rate: number, dt: number) => from + (to - from) * (1 - Math.exp(-rate * dt));
+const smooth = (t: number) => t * t * (3 - 2 * t);
+
+/**
+ * The camera: the fitted wide shot, and on a win a smooth push in to a close-up of the winner at
+ * the front of the board (back to the wide shot on Reset). Reduced motion cuts instead of moving.
+ */
+function CameraRig({ base, show, layout, bottomInset }: { base: RefObject<BasePose>; show: RefObject<Show>; layout: Layout; bottomInset: number }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const height = useThree((s) => s.size.height);
+  const blend = useRef(0);
+  const v = useMemo(() => ({ focus: new THREE.Vector3(), close: new THREE.Vector3(), aim: new THREE.Vector3() }), []);
+  useFrame((_, dt) => {
+    const s = show.current;
+    const b = base.current;
+    if (!b.ready) return;
+    const want = s.phase === "won" && s.winnerId !== null ? 1 : 0;
+    blend.current = s.reducedMotion ? want : damp(blend.current, want, 2.4, Math.min(dt, 0.1));
+    if (Math.abs(blend.current - want) < 1e-4) blend.current = want;
+    const k = smooth(blend.current);
+    // Frame the winner from the feet to above the crown and name tag, a little from above so the
+    // crowd in front stays below the shot.
+    const halfH = 2.5 * Math.max(0.85, layout.stageScale);
+    const dist = halfH / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const elevation = 0.36;
+    v.focus.set(s.winnerX, s.winnerY + 1.25 * layout.stageScale, s.winnerZ);
+    v.close.set(0, Math.sin(elevation), Math.cos(elevation)).multiplyScalar(dist).add(v.focus);
+    // The control bar covers the bottom of the canvas: centre the winner in what is left.
+    if (height > 0) v.focus.y -= (Math.min(bottomInset, height * 0.4) / height) * halfH;
+    camera.position.lerpVectors(b.position, v.close, k);
+    v.aim.lerpVectors(b.aim, v.focus, k);
+    camera.lookAt(v.aim);
+  });
+  return null;
+}
+
+const WINNER_GROW = 1.3;
+
+/**
+ * The winner steps out of their row to the front of the board (a hop over anyone in front of them)
+ * and back again on Reset. Moves the wrapper group around their avatar; the avatar itself is unchanged.
+ */
+function WinnerStep({
+  show,
+  layout,
+  entrants,
+  groups,
+}: {
+  show: RefObject<Show>;
+  layout: Layout;
+  entrants: StageEntrant[];
+  groups: RefObject<Map<number, THREE.Group>>;
+}) {
+  const step = useRef<{ id: number | null; index: number; k: number }>({ id: null, index: -1, k: 0 });
+  useFrame((_, dt) => {
+    const s = show.current;
+    const st = step.current;
+    const winnerIndex = s.winnerId === null ? -1 : entrants.findIndex((e) => e.memberId === s.winnerId);
+    const wanted = s.phase === "won" && winnerIndex >= 0 ? s.winnerId : null;
+    const d = Math.min(dt, 0.1);
+    if (st.id !== null && st.id !== wanted) {
+      // Back to their own space (Reset), before anyone else may step out.
+      st.k = s.reducedMotion ? 0 : Math.max(0, st.k - d / 0.7);
+    } else if (wanted !== null) {
+      if (st.id === null) Object.assign(st, { id: wanted, index: winnerIndex, k: 0 });
+      st.k = s.reducedMotion ? 1 : Math.min(1, st.k + d / 0.9);
+    }
+    if (st.id === null) return;
+    const group = groups.current.get(st.id);
+    const spot = layout.stage[st.index];
+    if (group && spot) {
+      const to = winnerSpot(layout, spot);
+      const e = easeInOutSine(st.k);
+      // Higher hops from the back rows, which have more heads to clear.
+      const arc = 4 * e * (1 - e) * (0.7 + 0.45 * spot.row);
+      // A little bigger up front, scaled about their own feet: the star of the shot.
+      const grow = 1 + (WINNER_GROW - 1) * e;
+      group.scale.setScalar(grow);
+      group.position.set(
+        spot.x * (1 - grow),
+        spot.y * (1 - grow) + (to.y - spot.y) * e + arc,
+        spot.z * (1 - grow) + (to.z - spot.z) * e,
+      );
+    }
+    if (st.k === 0 && st.id !== wanted) {
+      group?.position.set(0, 0, 0);
+      group?.scale.setScalar(1);
+      st.id = null;
+    }
+  });
   return null;
 }
 
@@ -121,13 +247,16 @@ function Director({
       plan: { from, to, duration, windup: reducedMotion ? 0 : 0.45, windupAngle: reducedMotion ? 0 : 0.22 },
     };
     const spot = layout.stage[spin.winnerIndex];
+    // Where the winner will stand once they step forward (see WinnerStep).
+    const stand = spot ? winnerSpot(layout, spot) : { x: 0, y: 0, z: 0 };
     Object.assign(show.current, {
       phase: "spinning",
       since: clock.elapsedTime,
       progress: 0,
       winnerId: entrants[spin.winnerIndex].memberId,
-      winnerX: spot?.x ?? 0,
-      winnerZ: spot?.z ?? 0,
+      winnerX: stand.x,
+      winnerY: stand.y,
+      winnerZ: stand.z,
     } satisfies Partial<Show>);
   }, [spin, phase, entrants, layout, reducedMotion, show, clock]);
 
@@ -151,6 +280,9 @@ function Director({
       s.rotation = spinRotation(current.plan, elapsed);
       s.speed = dt > 0 ? (s.rotation - before) / dt : 0;
       s.progress = spinProgress(current.plan, elapsed);
+      // Integrate the hop tempo (see Show.hopBeat), so speeding up never makes the hops jump.
+      s.hopBeat += dt * stageHopRate(s.progress);
+      s.crowdBeat += dt * crowdHopRate(s.progress);
       if (elapsed >= current.plan.duration) {
         s.rotation = current.plan.to;
         s.speed = 0;
@@ -173,19 +305,18 @@ function Director({
   return null;
 }
 
-function WinnerLight({ show, layout, entrants }: { show: RefObject<Show>; layout: Layout; entrants: StageEntrant[] }) {
+function WinnerLight({ show }: { show: RefObject<Show> }) {
   const light = useRef<THREE.SpotLight>(null);
   const target = useMemo(() => new THREE.Object3D(), []);
   useFrame((_, dt) => {
     const s = show.current;
     const l = light.current;
     if (!l) return;
-    const index = entrants.findIndex((e) => e.memberId === s.winnerId);
-    const spot = index >= 0 ? layout.stage[index] : undefined;
-    const on = s.phase === "won" && spot !== undefined;
-    if (spot) {
-      l.position.set(spot.x, spot.y + 7, spot.z + 3);
-      target.position.set(spot.x, spot.y + 0.6, spot.z);
+    const on = s.phase === "won" && s.winnerId !== null;
+    if (on) {
+      // On the spot the winner steps out to.
+      l.position.set(s.winnerX, s.winnerY + 7, s.winnerZ + 3);
+      target.position.set(s.winnerX, s.winnerY + 0.6, s.winnerZ);
       target.updateMatrixWorld();
     }
     const goal = on ? 5 : 0;
@@ -202,6 +333,7 @@ function WinnerLight({ show, layout, entrants }: { show: RefObject<Show>; layout
 interface SceneProps extends LotteryStageProps {
   layout: Layout;
   show: RefObject<Show>;
+  base: RefObject<BasePose>;
   ticker: RefObject<HTMLDivElement | null>;
   labelLayer: RefObject<HTMLDivElement | null>;
   onHoverSlice: (i: number | null) => void;
@@ -209,13 +341,16 @@ interface SceneProps extends LotteryStageProps {
 }
 
 function Scene(props: SceneProps) {
-  const { entrants, audience, phase, spin, reducedMotion, layout, show, ticker, labelLayer, onSpinEnd, onHoverSlice, onHoverCrowd } = props;
+  const { entrants, audience, phase, spin, reducedMotion, layout, show, base, ticker, labelLayer, onSpinEnd, onHoverSlice, onHoverCrowd } = props;
+  // Each entrant's wrapper group, for WinnerStep to move the winner forward.
+  const groups = useRef(new Map<number, THREE.Group>());
   const looks = useMemo(() => entrants.map((e) => lookFor(e.memberId)), [entrants]);
   const winnerId = phase === "won" && spin ? entrants[spin.winnerIndex]?.memberId : undefined;
   const { board, wheel } = layout;
 
   const volleys = useMemo<Volley[]>(() => {
-    const spot = spin ? layout.stage[spin.winnerIndex] : undefined;
+    const from = spin ? layout.stage[spin.winnerIndex] : undefined;
+    const spot = from ? winnerSpot(layout, from) : undefined;
     const list: Volley[] = [
       { origin: [board.minX + 0.4, board.top + 0.3, board.maxZ - 0.3], direction: [0.55, 1, -0.25], speed: 11, spread: 0.5, delay: 0 },
       { origin: [board.maxX - 0.4, board.top + 0.3, board.maxZ - 0.3], direction: [-0.55, 1, -0.25], speed: 11, spread: 0.5, delay: 0.05 },
@@ -228,7 +363,9 @@ function Scene(props: SceneProps) {
 
   return (
     <>
-      <FitCamera points={layout.frame} bottomInset={props.bottomInset ?? 0} />
+      <FitCamera points={layout.frame} bottomInset={props.bottomInset ?? 0} base={base} />
+      <CameraRig base={base} show={show} layout={layout} bottomInset={props.bottomInset ?? 0} />
+      <WinnerStep show={show} layout={layout} entrants={entrants} groups={groups} />
       <Director
         spin={spin}
         phase={phase}
@@ -253,7 +390,7 @@ function Scene(props: SceneProps) {
         shadow-camera-near={1}
         shadow-camera-far={60}
       />
-      <WinnerLight show={show} layout={layout} entrants={entrants} />
+      <WinnerLight show={show} />
       <Scenery layout={layout} reducedMotion={reducedMotion} />
       {entrants.length > 0 && (
         <Wheel
@@ -267,19 +404,26 @@ function Scene(props: SceneProps) {
       {entrants.map((e, i) => {
         const spot = layout.stage[i];
         return (
-          <Avatar
+          <group
             key={e.memberId}
-            name={e.displayName}
-            postCount={e.postCount}
-            look={looks[i]}
-            position={[spot.x, spot.y, spot.z]}
-            scale={layout.stageScale}
-            labelLift={spot.labelLift}
-            crowded={layout.crowded}
-            isWinner={e.memberId === winnerId}
-            show={show}
-            labelLayer={labelLayer}
-          />
+            ref={(g) => {
+              if (g) groups.current.set(e.memberId, g);
+              else groups.current.delete(e.memberId);
+            }}
+          >
+            <Avatar
+              name={e.displayName}
+              postCount={e.postCount}
+              look={looks[i]}
+              position={[spot.x, spot.y, spot.z]}
+              scale={layout.stageScale}
+              labelLift={spot.labelLift}
+              crowded={layout.crowded}
+              isWinner={e.memberId === winnerId}
+              show={show}
+              labelLayer={labelLayer}
+            />
+          </group>
         );
       })}
       <Crowd people={audience} spots={layout.audience} scale={layout.audienceScale} show={show} onHover={onHoverCrowd} />
@@ -299,9 +443,13 @@ export default function LotteryStage(props: LotteryStageProps) {
     speed: 0,
     winnerId: null,
     winnerX: 0,
+    winnerY: 0,
     winnerZ: 0,
+    hopBeat: 0,
+    crowdBeat: 0,
     reducedMotion: props.reducedMotion,
   });
+  const base = useRef<BasePose>({ ready: false, position: new THREE.Vector3(), aim: new THREE.Vector3() });
   const ticker = useRef<HTMLDivElement>(null);
   // Name tags go in their own layer: drei's Html otherwise re-parents every tag once the canvas
   // connects its events, remounting 40 React roots mid-render.
@@ -311,7 +459,7 @@ export default function LotteryStage(props: LotteryStageProps) {
 
   const hovered = hoverSlice != null ? entrants[hoverSlice] : undefined;
   return (
-    <div className={`lottery-stage${entrants.length === 0 ? " empty-stage" : ""}`}>
+    <div className={`lottery-stage${entrants.length === 0 ? " empty-stage" : ""}${phase === "won" ? " won-shot" : ""}`}>
       <div className="lottery-canvas" role="img" aria-label={label}>
         <Canvas
           shadows="percentage"
@@ -324,7 +472,8 @@ export default function LotteryStage(props: LotteryStageProps) {
             {...props}
             layout={layout}
             show={show}
-              ticker={ticker}
+            base={base}
+            ticker={ticker}
             labelLayer={labelLayer}
             onHoverSlice={setHoverSlice}
             onHoverCrowd={setHoverCrowd}

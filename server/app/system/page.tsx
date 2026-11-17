@@ -1,6 +1,7 @@
 // The product operator's panel: every user and impersonation — the support tool for
 // "what is this user actually seeing?". Reachable only with the system-admin flag.
 import {
+  getGetAdminLotteryQueryKey,
   getGetSystemOverviewQueryKey,
   useDeleteMember,
   useGetMe,
@@ -8,6 +9,7 @@ import {
   useImpersonate,
   useRegenerateJoinLink,
   useRestoreMember,
+  useSetLotteryExclusion,
   useSetMemberAdmin,
 } from "@linkedin-challenge/client/react-query";
 import type { SystemMemberRow } from "@linkedin-challenge/client";
@@ -50,6 +52,7 @@ export default function SystemPanel() {
   const regenerate = useRegenerateJoinLink();
   const deleteMember = useDeleteMember();
   const restoreMember = useRestoreMember();
+  const setExclusion = useSetLotteryExclusion();
   const { data: meData } = useGetMe();
   const myId = meData?.status === 200 ? meData.data.memberId : undefined;
   const queryClient = useQueryClient();
@@ -170,6 +173,28 @@ export default function SystemPanel() {
     );
   };
 
+  // The same route as the checkbox on the member's page. Reversible, so no confirmation.
+  const toggleLottery = (m: SystemMemberRow) => {
+    setActionError(null);
+    const excluded = !m.lotteryExcluded;
+    const failed = `Could not ${excluded ? "exclude" : "include"} ${m.displayName} ${excluded ? "from" : "in"} the lottery`;
+    setExclusion.mutate(
+      { id: m.id, data: { excluded } },
+      {
+        onSuccess: (res) => {
+          if (res.status !== 200) {
+            setActionError(`${failed}: ${res.data.error}`);
+            return;
+          }
+          refresh();
+          void queryClient.invalidateQueries({ queryKey: [`/api/members/${m.id}`] });
+          void queryClient.invalidateQueries({ queryKey: getGetAdminLotteryQueryKey() });
+        },
+        onError: (error) => setActionError(errorText(error, `${failed} (${error instanceof Error ? error.message : String(error)}).`)),
+      },
+    );
+  };
+
   const actionsFor = (m: SystemMemberRow): MenuAction[] => {
     if (m.deletedAt != null) {
       return [{ label: "Restore account", onSelect: () => ask({ kind: "restore", member: m }) }];
@@ -181,6 +206,11 @@ export default function SystemPanel() {
     actions.push({
       label: m.isSystemAdmin ? "Remove admin" : "Make admin",
       onSelect: () => ask({ kind: "admin", member: m }),
+    });
+    actions.push({
+      label: m.lotteryExcluded ? "Include in lottery" : "Exclude from lottery",
+      onSelect: () => toggleLottery(m),
+      disabled: setExclusion.isPending,
     });
     if (myId !== undefined && m.id !== myId) {
       actions.push({ label: "Delete account", danger: true, onSelect: () => ask({ kind: "delete", member: m }) });
@@ -387,6 +417,12 @@ export default function SystemPanel() {
                         <span className="badge ok">challenge owner</span>
                       ) : (
                         <span className="muted">user</span>
+                      )}
+                      {m.deletedAt == null && m.lotteryExcluded && (
+                        <>
+                          {" "}
+                          <span className="badge muted">excluded from lottery</span>
+                        </>
                       )}
                     </td>
                     <td className="num">{m.followerCount == null ? "Not synced" : fmtInt(m.followerCount)}</td>

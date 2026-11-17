@@ -140,13 +140,13 @@ class StageBoundary extends Component<{ onError: (error: Error) => void; childre
   }
 }
 
-function WinnerBanner({ winner, total, overlay }: { winner: StageEntrant; total: number; overlay: boolean }) {
+function WinnerBanner({ winner, overlay }: { winner: StageEntrant; overlay: boolean }) {
   return (
     <div className={`lottery-banner${overlay ? " overlay" : ""}`}>
       <div className="lottery-banner-kicker">★ This week&rsquo;s winner ★</div>
       <div className="lottery-banner-name">{winner.displayName}</div>
       <div className="lottery-banner-meta">
-        {posts(winner.postCount)} this week · drawn from {total === 1 ? "1 entrant" : `${total} entrants`}, one entry each
+        {posts(winner.postCount)} this week
       </div>
     </div>
   );
@@ -158,7 +158,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   const reducedMotion = useReducedMotion();
   const [webgl] = useState(detectWebGL);
   const entrants: StageEntrant[] = week.entrants; // the API sorts by name: that is the wheel order
-  const audience: StagePerson[] = week.audience;
+  const audience: StagePerson[] = week.audience; // the crowd, excluded posters included
+  // Posted this week but left out of the draw by an admin (set on the member's page).
+  const excluded = week.audience.filter((p) => p.excluded);
+  const didNotPost = week.audience.filter((p) => !p.excluded);
   const [phase, setPhase] = useState<ShowPhase>("ready");
   const [spin, setSpin] = useState<SpinRequest | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -170,6 +173,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   const showStage = webgl && stageError === null && (n > 0 || audience.length > 0);
   const spinRef = useRef(spin);
   spinRef.current = spin;
+  // One draw per Reset. Set synchronously on the first Spin, so a double click or a held key
+  // (several clicks before React re-renders the button as disabled) cannot start a second draw;
+  // only Reset clears it.
+  const drawn = useRef(false);
 
   const finish = useCallback(
     (index: number) => {
@@ -190,10 +197,11 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   );
 
   const doSpin = () => {
-    if (n === 0 || phase === "spinning") return;
+    if (n === 0 || stale || drawn.current) return;
+    drawn.current = true;
     // The draw: uniform over the entrants, decided now; the wheel animates to it afterwards.
     const winnerIndex = drawWinnerIndex(entrants);
-    const request = { id: (spin?.id ?? 0) + 1, winnerIndex };
+    const request = { id: (spinRef.current?.id ?? 0) + 1, winnerIndex };
     setSpin(request);
     if (showStage) {
       fit.reveal();
@@ -205,6 +213,7 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   };
 
   const reset = () => {
+    drawn.current = false;
     setPhase("ready");
     setAnnouncement("Reset. Ready for a new draw.");
   };
@@ -216,8 +225,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         (audience.length ? ` ${audience.length} more people watch from the crowd.` : "") +
         (winner ? ` The wheel stopped on ${winner.displayName}.` : "");
 
-  // Spin / Spin again / Reset. With a stage they sit in a bar along its bottom edge, so the wheel
-  // and the button are always on screen together; the bar is outside the role="img" wrapper.
+  // Spin, or after a win only a small Reset off to the side: there is deliberately no "spin again",
+  // so a second draw always takes a Reset first. With a stage they sit in a bar along its bottom
+  // edge, so the wheel and the button are always on screen together; the bar is outside the
+  // role="img" wrapper.
   const controls = (
     <div className={`lottery-controls${showStage ? " in-stage" : ""}`}>
       {winner && (
@@ -225,22 +236,19 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
           <span className="star">★</span> <strong>{winner.displayName}</strong> wins! <span className="muted">{posts(winner.postCount)}</span>
         </div>
       )}
-      <div className="lottery-buttons">
-        {phase === "won" ? (
-          <>
-            <button type="button" className="btn lottery-go" onClick={doSpin} disabled={stale} title="Draws again from everyone, the last winner included">
-              Spin again
-            </button>
-            <button type="button" className="btn lottery-reset" onClick={reset}>
-              Reset
-            </button>
-          </>
-        ) : (
+      {phase === "won" ? (
+        <div className="lottery-buttons side">
+          <button type="button" className="btn lottery-reset" onClick={reset} title="Clears this result; the wheel can then be spun again">
+            Reset
+          </button>
+        </div>
+      ) : (
+        <div className="lottery-buttons">
           <button type="button" className="btn lottery-go" onClick={doSpin} disabled={phase === "spinning" || stale}>
             {phase === "spinning" ? "Spinning…" : n === 1 ? "Spin for the ceremony" : "Spin the wheel"}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
@@ -250,12 +258,17 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         <strong>The 3D stage can&rsquo;t run here:</strong> {reason}. The draw works the same without it;
         the result appears below.
       </p>
-      {winner && <WinnerBanner winner={winner} total={n} overlay={false} />}
+      {winner && <WinnerBanner winner={winner} overlay={false} />}
     </div>
   );
 
   return (
     <>
+      {excluded.length > 0 && (
+        <p className="small lottery-excluded">
+          <strong>Not in the draw:</strong> {excluded.map((p) => p.displayName).join(", ")}
+        </p>
+      )}
       {n === 1 && (
         <div className="notice lottery-solo">
           Only <strong>{entrants[0].displayName}</strong> posted this week, so they win by default. Give the
@@ -266,7 +279,9 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         <div className="lottery-empty">
           <h2>No draw this week</h2>
           <p>
-            Nobody published an original post this week, so the wheel stays in its box.
+            {excluded.length > 0
+              ? "Only people left out of the draw published an original post this week, so the wheel stays in its box."
+              : "Nobody published an original post this week, so the wheel stays in its box."}
             {audience.length > 0 && " The crowd turned up anyway."}
           </p>
         </div>
@@ -298,7 +313,7 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
               />
             </Suspense>
           </StageBoundary>
-          {winner && <WinnerBanner winner={winner} total={n} overlay />}
+          {winner && <WinnerBanner winner={winner} overlay />}
           {n > 0 && controls}
         </div>
       )}
@@ -327,10 +342,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
             </ul>
           </div>
         )}
-        {audience.length > 0 && (
+        {didNotPost.length > 0 && (
           <div className="panel lottery-list audience">
-            <h2>Didn&rsquo;t post this week ({audience.length})</h2>
-            <p className="small">{audience.map((p) => p.displayName).join(", ")}</p>
+            <h2>Didn&rsquo;t post this week ({didNotPost.length})</h2>
+            <p className="small">{didNotPost.map((p) => p.displayName).join(", ")}</p>
           </div>
         )}
       </section>
