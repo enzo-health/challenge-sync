@@ -8,7 +8,7 @@ Build with:
 just extension-release https://social-challenge.enzo.health
 ```
 
-Upload `extension/dist/challenge-sync-0.1.4.zip` (the version in `extension/manifest.json`).
+Upload `extension/dist/challenge-sync-0.1.1.zip`.
 
 Production homepage: <https://social-challenge.enzo.health>
 
