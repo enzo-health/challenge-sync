@@ -879,6 +879,7 @@ main:has(.lottery-page) { max-width: 1240px; }
 }
 .narrow .lottery-bar-winner { flex-basis: 100%; text-align: center; }
 .narrow .lottery-buttons { margin: 0 auto; }
+.narrow .lottery-buttons.side { margin: 0 0 0 auto; }
 .lottery-bar-winner {
   flex: 1 1 auto; min-width: 0; font-family: var(--party-font); font-weight: 600; font-size: 18px;
   color: var(--party-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none;
@@ -894,16 +895,20 @@ main:has(.lottery-page) { max-width: 1240px; }
 }
 .btn.lottery-go:hover:not(:disabled) { background: #ff3358; transform: translateY(-1px); box-shadow: 0 6px 0 var(--party-ink); }
 .btn.lottery-go:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--party-ink); }
+/* After a win the only control: small and off to the right, so nobody re-spins by accident. */
+.lottery-buttons.side { margin-left: auto; }
 .btn.lottery-reset {
-  font-family: var(--party-font); font-weight: 600; font-size: 16px; padding: 8px 18px; border-radius: 999px;
-  background: #fff; color: var(--party-ink); border: 3px solid var(--party-ink); box-shadow: 0 4px 0 var(--party-ink);
+  font-family: var(--party-font); font-weight: 600; font-size: 13px; padding: 4px 12px; border-radius: 999px;
+  background: #fff; color: var(--party-ink); border: 2px solid var(--party-ink); box-shadow: 0 2px 0 var(--party-ink);
 }
 .btn.lottery-reset:hover { background: #fff4d6; }
-.btn.lottery-reset:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--party-ink); }
+.btn.lottery-reset:active { transform: translateY(2px); box-shadow: 0 0 0 var(--party-ink); }
 .compact .btn.lottery-go { font-size: 17px; padding: 8px 18px; }
-.compact .btn.lottery-reset { font-size: 15px; padding: 6px 14px; }
 .compact .lottery-bar-winner { font-size: 16px; }
 .has-bar .lottery-hover { bottom: 90px; }
+/* The winner's close-up: the other name tags would sit over them, so they fade out until Reset. */
+.lottery-tag-wrap { transition: opacity .4s; }
+.lottery-stage.won-shot .lottery-tag-wrap:not(.top) { opacity: 0; }
 /* A phone-width stage can't fit 40 name tags: keep the winner's (and a hovered one's); the wheel
    and the lists below carry every name. */
 .narrow .lottery-tag.crowded:not(.winner):not(.hovered) { display: none; }

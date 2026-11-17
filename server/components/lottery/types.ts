@@ -48,8 +48,18 @@ export interface Show {
   /** Radians per second, for the pointer flap and the bulbs. */
   speed: number;
   winnerId: number | null;
-  /** Where the winner stands, so everyone else can turn to them. */
+  /** Where the winner stands right now (they step forward to the front once they win), so
+   * everyone else can turn to them and the spotlight and camera can follow. */
   winnerX: number;
+  winnerY: number;
   winnerZ: number;
+  /**
+   * Hop beats, in whole hops, accumulated frame by frame (`beat += dt * hopsPerSecond`) while the
+   * wheel spins: the stage avatars' and the crowd's. Their hops speed up as the wheel slows; reading
+   * the phase off the scene clock with a changing period (`(t % period) / period`) instead made the
+   * rate jump by `t * |dperiod/dt| / period^2`, which grows the longer the page has been open.
+   */
+  hopBeat: number;
+  crowdBeat: number;
   reducedMotion: boolean;
 }

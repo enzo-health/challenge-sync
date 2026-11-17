@@ -173,6 +173,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   const showStage = webgl && stageError === null && (n > 0 || audience.length > 0);
   const spinRef = useRef(spin);
   spinRef.current = spin;
+  // One draw per Reset. Set synchronously on the first Spin, so a double click or a held key
+  // (several clicks before React re-renders the button as disabled) cannot start a second draw;
+  // only Reset clears it.
+  const drawn = useRef(false);
 
   const finish = useCallback(
     (index: number) => {
@@ -193,10 +197,11 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   );
 
   const doSpin = () => {
-    if (n === 0 || phase === "spinning") return;
+    if (n === 0 || stale || drawn.current) return;
+    drawn.current = true;
     // The draw: uniform over the entrants, decided now; the wheel animates to it afterwards.
     const winnerIndex = drawWinnerIndex(entrants);
-    const request = { id: (spin?.id ?? 0) + 1, winnerIndex };
+    const request = { id: (spinRef.current?.id ?? 0) + 1, winnerIndex };
     setSpin(request);
     if (showStage) {
       fit.reveal();
@@ -208,6 +213,7 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   };
 
   const reset = () => {
+    drawn.current = false;
     setPhase("ready");
     setAnnouncement("Reset. Ready for a new draw.");
   };
@@ -219,8 +225,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         (audience.length ? ` ${audience.length} more people watch from the crowd.` : "") +
         (winner ? ` The wheel stopped on ${winner.displayName}.` : "");
 
-  // Spin / Spin again / Reset. With a stage they sit in a bar along its bottom edge, so the wheel
-  // and the button are always on screen together; the bar is outside the role="img" wrapper.
+  // Spin, or after a win only a small Reset off to the side: there is deliberately no "spin again",
+  // so a second draw always takes a Reset first. With a stage they sit in a bar along its bottom
+  // edge, so the wheel and the button are always on screen together; the bar is outside the
+  // role="img" wrapper.
   const controls = (
     <div className={`lottery-controls${showStage ? " in-stage" : ""}`}>
       {winner && (
@@ -228,22 +236,19 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
           <span className="star">★</span> <strong>{winner.displayName}</strong> wins! <span className="muted">{posts(winner.postCount)}</span>
         </div>
       )}
-      <div className="lottery-buttons">
-        {phase === "won" ? (
-          <>
-            <button type="button" className="btn lottery-go" onClick={doSpin} disabled={stale} title="Draws again from everyone, the last winner included">
-              Spin again
-            </button>
-            <button type="button" className="btn lottery-reset" onClick={reset}>
-              Reset
-            </button>
-          </>
-        ) : (
+      {phase === "won" ? (
+        <div className="lottery-buttons side">
+          <button type="button" className="btn lottery-reset" onClick={reset} title="Clears this result; the wheel can then be spun again">
+            Reset
+          </button>
+        </div>
+      ) : (
+        <div className="lottery-buttons">
           <button type="button" className="btn lottery-go" onClick={doSpin} disabled={phase === "spinning" || stale}>
             {phase === "spinning" ? "Spinning…" : n === 1 ? "Spin for the ceremony" : "Spin the wheel"}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
