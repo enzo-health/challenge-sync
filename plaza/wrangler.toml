@@ -1,6 +1,9 @@
 # The plaza room: a Rust Worker (workers-rs) with one Durable Object, the room.
-# Local use only so far: `npx wrangler dev` (see README.md). Nothing here has been deployed.
+# Local: `npx wrangler dev` (see README.md). Deploy: `just plaza-deploy` (see docs/deploying.md).
 name = "plaza-room"
+# The company Cloudflare account (Dan@enzo.health's Account). Pinned so a deploy from a login with
+# several accounts never asks, and never lands in the wrong one.
+account_id = "d091bf86b4e6d6f7c22dc681ec8e83a9"
 main = "build/index.js"
 compatibility_date = "2026-11-01"
 
