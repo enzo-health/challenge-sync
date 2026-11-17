@@ -783,3 +783,169 @@ table.ledger td:first-child { max-width: 360px; }
 .start-title { margin: 0; font-weight: 600; }
 .start-step.done .start-title { color: var(--muted); }
 .start-action { margin-top: 8px; }
+
+/* --- weekly lottery (app/admin/lottery, components/lottery) ---------------------------------- */
+:root {
+  --party-font: Fredoka, "Arial Rounded MT Bold", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --party-ink: #2b1d3a;
+  --party-pink: #ff4d6d;
+  --party-sun: #ffb703;
+  --party-grape: #7b5cff;
+}
+main:has(.lottery-page) { max-width: 1240px; }
+.lottery-title { font-family: var(--party-font); font-weight: 700; font-size: 32px; letter-spacing: 0; }
+.lottery-week { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
+.lottery-week-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); }
+.lottery-week-label strong { color: var(--fg); font-family: var(--party-font); font-weight: 600; font-size: 18px; }
+
+.lottery-stage-wrap { position: relative; margin: 8px 0 22px; }
+.lottery-stage {
+  position: relative; width: 100%; height: var(--stage-h, clamp(340px, 70vh, 760px));
+  border-radius: 24px; overflow: hidden;
+  border: 4px solid #fff; box-shadow: 0 0 0 3px var(--party-grape), 0 12px 28px rgba(60, 30, 120, .22);
+  /* Pastel sky behind a transparent canvas. */
+  background:
+    radial-gradient(120% 70% at 50% 0%, #fff7d6 0%, rgba(255,247,214,0) 55%),
+    linear-gradient(180deg, #a9dcff 0%, #cfe9ff 45%, #ffe1f0 100%);
+}
+.lottery-stage.empty-stage { height: clamp(260px, 42vh, 420px); }
+.lottery-stage.loading {
+  display: grid; place-items: center; font-family: var(--party-font); font-size: 20px; font-weight: 600; color: #5b4a86;
+}
+.lottery-canvas { position: absolute; inset: 0; }
+.lottery-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+.lottery-tag-wrap.raised { z-index: 90 !important; }
+.lottery-tag-wrap.top { z-index: 100 !important; }
+.lottery-canvas canvas { touch-action: pan-y; }
+
+/* Name tags above heads (drei Html; pixel-sized so they stay readable at any zoom). */
+.lottery-tag {
+  font-family: var(--party-font); font-weight: 600; font-size: 13px; line-height: 1.15;
+  color: var(--party-ink); background: #fff; border: 2px solid var(--party-ink);
+  border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+  box-shadow: 0 2px 0 var(--party-ink); user-select: none;
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+}
+.lottery-tag.crowded { font-size: 11px; padding: 1px 7px; max-width: 86px; border-width: 1.5px; }
+.lottery-tag.hovered { max-width: none; transform: scale(1.12); }
+.lottery-tag.winner {
+  max-width: none; font-size: 16px; padding: 4px 13px; background: var(--party-sun); transform: scale(1.1);
+  box-shadow: 0 3px 0 var(--party-ink), 0 0 0 4px rgba(255,255,255,.7);
+}
+.lottery-tag-star { color: #fff; -webkit-text-stroke: 1px var(--party-ink); }
+
+.lottery-ticker, .lottery-hover {
+  position: absolute; left: 50%; transform: translateX(-50%); pointer-events: none;
+  font-family: var(--party-font); font-weight: 600; color: var(--party-ink);
+  background: rgba(255,255,255,.92); border: 2px solid var(--party-ink); border-radius: 999px;
+  padding: 4px 14px; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+  z-index: 2;
+}
+.lottery-ticker { top: 12px; font-size: 18px; opacity: 0; transition: opacity .15s; }
+.lottery-ticker.on { opacity: 1; }
+.lottery-hover { bottom: 12px; font-size: 14px; }
+
+.lottery-banner {
+  font-family: var(--party-font); text-align: center; color: var(--party-ink);
+  background: #fff; border: 4px solid var(--party-ink); border-radius: 22px;
+  padding: 14px 28px 16px; box-shadow: 0 6px 0 var(--party-ink);
+}
+/* The big banner sits over the stage's top-left corner, clear of the centred wheel and pointer.
+   On a small or narrow stage (.compact, measured in page.tsx) the control bar's line says it instead. */
+.lottery-banner.overlay {
+  position: absolute; left: 18px; top: 18px; z-index: 2; pointer-events: none;
+  max-width: min(34%, 380px); text-align: left; transform-origin: 20% 20%;
+  animation: lottery-pop .6s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.lottery-banner.overlay .lottery-banner-name { font-size: clamp(24px, 2.6vw, 38px); }
+.compact .lottery-banner.overlay { display: none; }
+.lottery-banner-kicker { font-weight: 700; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--party-pink); }
+.lottery-banner-name { font-weight: 700; font-size: clamp(26px, 4.4vw, 44px); line-height: 1.1; margin: 2px 0 4px; overflow-wrap: anywhere; }
+.lottery-banner-meta { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; color: #5b4a86; }
+@keyframes lottery-pop {
+  0% { transform: scale(.4) rotate(-6deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+.lottery-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 22px; }
+.lottery-buttons { display: flex; gap: 10px; align-items: center; }
+.compact .lottery-buttons { margin-left: auto; }
+/* In the stage: a chunky bar along the frame's bottom edge (the camera keeps the scene above it). */
+.lottery-controls.in-stage {
+  position: absolute; left: 4px; right: 4px; bottom: 4px; z-index: 3; margin: 0;
+  min-height: 72px; padding: 10px 14px; border-radius: 0 0 20px 20px;
+  background: rgba(255, 255, 255, .86); border-top: 3px solid var(--party-ink);
+  backdrop-filter: blur(4px); justify-content: center;
+}
+.narrow .lottery-bar-winner { flex-basis: 100%; text-align: center; }
+.narrow .lottery-buttons { margin: 0 auto; }
+.lottery-bar-winner {
+  flex: 1 1 auto; min-width: 0; font-family: var(--party-font); font-weight: 600; font-size: 18px;
+  color: var(--party-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none;
+}
+.lottery-bar-winner .star { color: var(--party-sun); -webkit-text-stroke: 1px var(--party-ink); }
+.lottery-bar-winner .muted { font-size: 14px; font-weight: 500; }
+.compact .lottery-bar-winner { display: block; }
+.btn.lottery-go {
+  font-family: var(--party-font); font-weight: 700; font-size: 20px; letter-spacing: .01em;
+  padding: 10px 28px; border-radius: 999px; border: 3px solid var(--party-ink);
+  background: var(--party-pink); color: #fff; box-shadow: 0 5px 0 var(--party-ink);
+  transition: transform .08s, box-shadow .08s; white-space: nowrap;
+}
+.btn.lottery-go:hover:not(:disabled) { background: #ff3358; transform: translateY(-1px); box-shadow: 0 6px 0 var(--party-ink); }
+.btn.lottery-go:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--party-ink); }
+.btn.lottery-reset {
+  font-family: var(--party-font); font-weight: 600; font-size: 16px; padding: 8px 18px; border-radius: 999px;
+  background: #fff; color: var(--party-ink); border: 3px solid var(--party-ink); box-shadow: 0 4px 0 var(--party-ink);
+}
+.btn.lottery-reset:hover { background: #fff4d6; }
+.btn.lottery-reset:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--party-ink); }
+.compact .btn.lottery-go { font-size: 17px; padding: 8px 18px; }
+.compact .btn.lottery-reset { font-size: 15px; padding: 6px 14px; }
+.compact .lottery-bar-winner { font-size: 16px; }
+.has-bar .lottery-hover { bottom: 90px; }
+/* A phone-width stage can't fit 40 name tags: keep the winner's (and a hovered one's); the wheel
+   and the lists below carry every name. */
+.narrow .lottery-tag.crowded:not(.winner):not(.hovered) { display: none; }
+@media (max-width: 600px) {
+  .lottery-week-label { order: 3; flex-basis: 100%; }
+  .lottery-title { font-size: 28px; }
+}
+.btn.lottery-go:disabled { background: #c9a3ad; }
+
+.lottery-solo { background: #fff4d6; color: #6b4b00; border: 2px dashed var(--party-sun); }
+.lottery-empty {
+  text-align: center; padding: 26px 20px; margin: 8px 0 14px; border-radius: 22px;
+  background: linear-gradient(180deg, #e6f4ff, #fff0f6); border: 3px dashed #b9a6ff;
+}
+.lottery-empty h2 { font-family: var(--party-font); font-size: 24px; margin: 0 0 6px; color: var(--party-ink); }
+.lottery-empty p { margin: 0; color: #5b4a86; }
+.lottery-fallback { margin: 8px 0 14px; padding: 18px; border-radius: 16px; border: 2px dashed var(--line); background: var(--panel); }
+.lottery-fallback p { margin: 0 0 12px; }
+.lottery-fallback .lottery-banner { display: inline-block; }
+
+.lottery-lists { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.lottery-list h2 { margin: 0 0 2px; font-size: 16px; }
+.lottery-list > p { margin: 0 0 10px; }
+.lottery-list ul {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 14px;
+}
+.lottery-list li { display: flex; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: 8px; min-width: 0; }
+.lottery-list li .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lottery-list li .small { flex: none; }
+.lottery-list li.won { background: #fff1c2; font-weight: 700; }
+.lottery-list.audience p { color: var(--muted); }
+@media (max-width: 800px) { .lottery-lists { grid-template-columns: 1fr; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lottery-banner.overlay { animation: none; }
+  .btn.lottery-go { transition: none; }
+}
+@media (prefers-color-scheme: dark) {
+  .lottery-list li.won { background: #4a3a10; }
+  .lottery-solo { background: #33290f; color: #e3c26b; }
+  .lottery-empty { background: linear-gradient(180deg, #1d2a3a, #2e1f2a); border-color: #5b4a86; }
+  .lottery-empty h2 { color: #f4ecff; }
+  .lottery-empty p { color: #cbbcf0; }
+}

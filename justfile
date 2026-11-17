@@ -32,6 +32,11 @@ run-prod:
 seed-local:
     cd server && DATABASE_URL=turso:linkedin.db cargo run --bin seed-local
 
+# Add an invented crowd to the LOCAL database for the weekly lottery page (idempotent, opt-in; the
+# binary refuses any DATABASE_URL but turso:linkedin.db). View as lottery-admin@local.test / localpassword.
+seed-lottery-demo:
+    cd server && DATABASE_URL=turso:linkedin.db cargo run --bin seed-lottery-demo
+
 # Build the stable unpacked Chrome extension directory for the local server.
 extension-dev:
     cd extension && ./build.sh {{localhost}} --dir
