@@ -6,6 +6,7 @@ pub mod auth;
 pub mod db_timing;
 pub mod dto;
 pub mod enroll;
+pub mod lottery;
 pub mod models;
 pub mod reports;
 pub mod scoring;

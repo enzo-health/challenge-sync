@@ -227,6 +227,7 @@ server_steps=(
   "stats python3 server/scripts/test-stats-e2e.py"
   "sync-banner python3 server/scripts/test-sync-banner-e2e.py"
   "server-timing python3 server/scripts/test-server-timing-e2e.py"
+  "lottery python3 server/scripts/test-lottery-e2e.py"
 )
 if [ $build_ok = 0 ]; then
   run cargo-test bash -c 'cd server && cargo test --quiet'
