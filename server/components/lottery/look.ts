@@ -1,5 +1,10 @@
 // Deterministic looks: every member gets the same little character every time, chosen from their
-// id with a small seeded hash. Purely cosmetic; nothing here touches the draw.
+// id with a small seeded hash, unless they designed their own in the avatar editor. Purely
+// cosmetic; nothing here touches the draw.
+import {
+  AVATAR_OPTIONS, BUILD_PRESETS, parseAvatar,
+  type AvatarInput, type AvatarSpec, type Brows, type Ears, type Eyes, type FacialHair, type Hair, type Hat, type Mouth, type Nose,
+} from "./avatar-model";
 
 /** A 32-bit integer hash (splitmix-style finaliser) of a member id plus a salt. */
 export function hash32(id: number, salt = 0): number {
@@ -37,14 +42,17 @@ export function sliceColors(count: number): string[] {
   return colors;
 }
 
-const BODY = ["#ff4d6d", "#ffb703", "#3a86ff", "#2ec4b6", "#8338ec", "#fb5607", "#06d6a0", "#ff70a6", "#4cc9f0", "#f72585"];
-// Heads are their own playful colours (these are toy creatures, not portraits of anyone).
-const HEAD = ["#ffe8d6", "#fff3b0", "#ffd6e0", "#d8f3dc", "#e0e7ff", "#ffe5b4", "#f1e4ff", "#cdf5fd"];
-const ACCENT = ["#ffffff", "#2b2d42", "#ffd166", "#ef476f", "#118ab2", "#06d6a0", "#ff9f1c"];
+// Today's palettes are the first entries of the editor's lists (avatar-options.json), in the same
+// order, so everyone who never saved an avatar keeps exactly the character they always had.
+const BODY = AVATAR_OPTIONS.outfit;
+// Heads are their own playful colours (these are toy creatures, not portraits of anyone). The
+// editor offers a few more skin tones after these; the generated look only picks from the first 8.
+const HEAD = AVATAR_OPTIONS.skin.slice(0, 8);
+const ACCENT = AVATAR_OPTIONS.accent;
 
-export type Hat = "none" | "beanie" | "party" | "antenna" | "cap" | "bow" | "sprout";
+export type { Ears, Hat } from "./avatar-model";
+// Weighted: some hats come up more often than others.
 const HATS: readonly Hat[] = ["none", "beanie", "party", "antenna", "cap", "bow", "sprout", "party", "beanie"];
-export type Ears = "none" | "round" | "pointy";
 const EARS: readonly Ears[] = ["none", "none", "round", "pointy"];
 
 /** How a non-winner on stage takes the result. */
@@ -57,7 +65,7 @@ export interface Look {
   accent: string;
   hat: Hat;
   ears: Ears;
-  /** Body proportions: 0.85 (short and round) .. 1.15 (tall). */
+  /** Body proportions: 0.85 (short and round) .. 1.15 (tall) when generated; see BUILD_PRESETS. */
   height: number;
   /** 0.9 .. 1.15 */
   girth: number;
@@ -68,26 +76,90 @@ export interface Look {
   /** A phase offset so the idle animations don't move in lockstep. */
   phase: number;
   reaction: Reaction;
+  // The face and hair, from the avatar editor (the generated defaults are today's face, bald).
+  hair: Hair;
+  facialHair: FacialHair;
+  hairColor: string;
+  eyes: Eyes;
+  brows: Brows;
+  nose: Nose;
+  mouth: Mouth;
 }
 
-export function lookFor(memberId: number): Look {
-  const body = pick(BODY, memberId, 1);
+/**
+ * The avatar someone has until they save their own: today's generated character (the same skin,
+ * outfit, accent, hat and ears picks as ever, a dot-eyed smile, no hair) on their signature build.
+ */
+export function defaultAvatar(memberId: number): AvatarSpec {
+  const outfit = pick(BODY, memberId, 1);
   let accent = pick(ACCENT, memberId, 3);
-  if (accent === body) accent = "#ffffff";
+  if (accent === outfit) accent = "#ffffff";
   return {
-    body,
-    head: pick(HEAD, memberId, 2),
+    v: 2,
+    skin: pick(HEAD, memberId, 2),
+    outfit,
     accent,
+    hairColor: pick(AVATAR_OPTIONS.hairColor, memberId, 12),
+    hair: "none",
+    facialHair: "none",
     hat: pick(HATS, memberId, 4),
     ears: pick(EARS, memberId, 5),
-    height: 0.85 + unit(memberId, 6) * 0.3,
-    girth: 0.9 + unit(memberId, 7) * 0.25,
-    headSize: 0.9 + unit(memberId, 8) * 0.3,
+    eyes: "dot",
+    brows: "none",
+    nose: "none",
+    mouth: "smile",
+    build: "signature",
+  };
+}
+
+/**
+ * How a member looks on stage: their saved avatar, or their generated default when they have none.
+ * Eye spacing, animation phase and how they take the result are personality, always from the id.
+ */
+export function resolveLook(memberId: number, avatar: AvatarSpec | AvatarInput | null | undefined): Look {
+  let a = defaultAvatar(memberId);
+  if (avatar) {
+    const parsed = parseAvatar(avatar);
+    if ("avatar" in parsed) a = parsed.avatar;
+    else reportBadAvatar(memberId, parsed.error);
+  }
+  const [height, girth, headSize] =
+    a.build === "signature"
+      ? [0.85 + unit(memberId, 6) * 0.3, 0.9 + unit(memberId, 7) * 0.25, 0.9 + unit(memberId, 8) * 0.3]
+      : BUILD_PRESETS[a.build];
+  return {
+    body: a.outfit,
+    head: a.skin,
+    accent: a.accent,
+    hat: a.hat,
+    ears: a.ears,
+    height,
+    girth,
+    headSize,
     eyeSpread: unit(memberId, 9) * 2 - 1,
     phase: unit(memberId, 10) * Math.PI * 2,
     reaction: pick(REACTIONS, memberId, 11),
+    hair: a.hair,
+    facialHair: a.facialHair,
+    hairColor: a.hairColor,
+    eyes: a.eyes,
+    brows: a.brows,
+    nose: a.nose,
+    mouth: a.mouth,
   };
 }
+
+const reported = new Set<string>();
+/** A saved avatar this page can't draw: the member keeps their generated look, and the console says why (once). */
+function reportBadAvatar(memberId: number, error: string) {
+  const key = `${memberId}:${error}`;
+  if (reported.has(key)) return;
+  reported.add(key);
+  console.warn(`Member ${memberId}'s saved avatar can't be drawn (${error}); showing their generated look instead.`);
+}
+
+/** The generated look of someone with no saved avatar. */
+export const lookFor = (memberId: number): Look => resolveLook(memberId, null);
 
 /** A muted take on a colour for the crowd off stage, so the stage reads first. */
 export function muted(hex: string, amount = 0.45): string {

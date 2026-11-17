@@ -119,6 +119,8 @@ pub async fn connect() -> Db {
         "ALTER TABLE members ADD COLUMN lottery_excluded BOOLEAN NOT NULL DEFAULT FALSE",
     )
     .await;
+    // A member's own lottery-wheel avatar (see `avatar.rs`); NULL = the look generated from their id.
+    add_column(&mut db, "ALTER TABLE members ADD COLUMN avatar_json TEXT").await;
     // Email is the login identifier for everyone, so the database enforces uniqueness too — the
     // signup-time check alone cannot rule out two concurrent registrations of one address.
     // NULL (extension-only members) is exempt from the constraint on both engines.
@@ -346,6 +348,9 @@ pub struct Member {
     /// not win). They still post and score as usual; the lottery lists them as not in the draw.
     #[default(false)]
     pub lottery_excluded: bool,
+    /// The member's saved lottery-wheel avatar as canonical JSON (`avatar::Avatar`), or None
+    /// for the look generated from their id. Validated on save and again on read.
+    pub avatar_json: Option<String>,
 
     #[has_many]
     pub posts: toasty::Deferred<Vec<Post>>,

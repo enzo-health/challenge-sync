@@ -104,6 +104,7 @@ function Sidebar() {
             <>
               <SideLink href="/" pathname={pathname}>Overview</SideLink>
               <SideLink href="/me" pathname={pathname}>My posts</SideLink>
+              <SideLink href="/me/avatar" pathname={pathname}>My avatar</SideLink>
               {me.isSystemAdmin && (
                 <>
                   <div className="nav-section">Challenges</div>
@@ -199,6 +200,10 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <title>Challenge Sync</title>
+      {/* The served document is a bare mount point (a .tsx root layout has no static <head>), so
+          head tags go here and React hoists them into <head>, like the title. Without this, phones
+          lay every page out at ~980px and zoom out. */}
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
       {/* No manual stylesheet link: the bundler injects a content-hashed copy of public/style.css,
           and an unhashed /style.css link loaded after it would let a browser's cached copy override
           every CSS change until the cache expired. */}

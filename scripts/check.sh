@@ -230,9 +230,11 @@ server_steps=(
   "sync-banner python3 server/scripts/test-sync-banner-e2e.py"
   "server-timing python3 server/scripts/test-server-timing-e2e.py"
   "lottery python3 server/scripts/test-lottery-e2e.py"
+  "avatar python3 server/scripts/test-avatar-e2e.py"
   "prefetch python3 server/scripts/test-prefetch-e2e.py"
   "prefetch-browser node scripts/test-prefetch-browser.mjs"
   "lottery-browser node scripts/test-lottery-browser.mjs"
+  "avatar-browser node scripts/test-avatar-browser.mjs"
 )
 if [ $build_ok = 0 ]; then
   run cargo-test bash -c 'cd server && cargo test --quiet'

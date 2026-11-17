@@ -1,8 +1,11 @@
 // Props the lottery stage takes, and the per-frame show state its parts read.
+import type { AvatarInput } from "./avatar-model";
 
 export interface StagePerson {
   memberId: number;
   displayName: string;
+  /** Their saved avatar as the API sends it; none means their generated look (see look.ts). */
+  avatar?: AvatarInput | null;
 }
 
 export interface StageEntrant extends StagePerson {

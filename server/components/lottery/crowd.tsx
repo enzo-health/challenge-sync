@@ -6,7 +6,8 @@ import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from "rea
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { hop } from "./avatar";
-import { lookFor, muted } from "./look";
+import { CrowdHair, type CrowdHairHandle } from "./crowd-hair";
+import { muted, resolveLook } from "./look";
 import { characterGeometries } from "./shapes";
 import type { Spot } from "./layout";
 import type { Show, StagePerson } from "./types";
@@ -27,7 +28,8 @@ export function Crowd({
   const g = characterGeometries();
   const bodies = useRef<THREE.InstancedMesh>(null);
   const heads = useRef<THREE.InstancedMesh>(null);
-  const looks = useMemo(() => people.map((p) => lookFor(p.memberId)), [people]);
+  const hair = useRef<CrowdHairHandle>(null);
+  const looks = useMemo(() => people.map((p) => resolveLook(p.memberId, p.avatar)), [people]);
   const material = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.7 }), []);
   useEffect(() => () => material.dispose(), [material]);
   const slump = useRef(0);
@@ -89,9 +91,11 @@ export function Crowd({
       dummy.scale.setScalar(look.headSize * sc);
       dummy.updateMatrix();
       heads.current?.setMatrixAt(i, dummy.matrix);
+      hair.current?.place(i, dummy.matrix);
     }
     if (bodies.current) bodies.current.instanceMatrix.needsUpdate = true;
     if (heads.current) heads.current.instanceMatrix.needsUpdate = true;
+    hair.current?.commit();
   });
 
   if (people.length === 0) return null;
@@ -117,6 +121,7 @@ export function Crowd({
         onPointerMove={hover}
         onPointerOut={() => onHover(null)}
       />
+      <CrowdHair ref={hair} looks={looks} />
     </group>
   );
 }
