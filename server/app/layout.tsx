@@ -105,6 +105,7 @@ function Sidebar() {
               <SideLink href="/" pathname={pathname}>Overview</SideLink>
               <SideLink href="/me" pathname={pathname}>My posts</SideLink>
               <SideLink href="/me/avatar" pathname={pathname}>My avatar</SideLink>
+              <SideLink href="/plaza" pathname={pathname}>Plaza</SideLink>
               {me.isSystemAdmin && (
                 <>
                   <div className="nav-section">Challenges</div>

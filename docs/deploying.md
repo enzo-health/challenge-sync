@@ -127,3 +127,54 @@ See [distributing-the-extension.md](distributing-the-extension.md).
 - **No backups.** `backup-db.sh` is a local-development tool. A hosted database needs its provider's
   backups turned on.
 - **No error reporting.** Failures print to the Vercel function log and nowhere else.
+
+## The plaza room
+
+| | |
+|---|---|
+| Room | `wss://plaza-room.dan-d09.workers.dev/room` (health: https://plaza-room.dan-d09.workers.dev/health) |
+| Cloudflare | Worker `plaza-room` in `Dan@enzo.health's Account` (`account_id` pinned in `plaza/wrangler.toml`), first deployed 2026-11-17 |
+| Vercel | `PLAZA_PASS_PRIVATE_KEY` (sensitive) and `PLAZA_ROOM_URL` set for production |
+
+The steps below are how that was set up, and how to redo it.
+
+`/plaza` needs a second deployment: the room in `plaza/`, a Cloudflare Worker with one Durable
+Object. The main app and the room never call each other; they share only a key pair. The main
+app signs a 60-second pass with the private key, the room checks it with the public key.
+
+Until both halves are configured the page still works: everyone wanders, and a note says live
+mode is not configured (no `PLAZA_ROOM_URL`) or that the server can't issue passes (no key).
+So the main app can ship before the room exists.
+
+First deploy, in this order:
+
+1. **Keys.** `just plaza-keygen` prints a pair in your terminal. Keep the private key out of git
+   and out of chat. Put the public key in `plaza/wrangler.toml` (`PLAZA_PASS_PUBLIC_KEY`) and
+   commit it.
+2. **Room.** `cd plaza && npx wrangler login` once, then `just plaza-deploy`. It refuses to run
+   without a production public key (or with the dev-only one). It prints the Worker's URL, e.g.
+   `https://plaza-room.<account>.workers.dev`. Check it:
+   ```bash
+   curl -sS -H 'Origin: https://social-challenge.enzo.health' https://<worker host>/health
+   # {"ok":true,"originAllowed":true}
+   ```
+3. **Main app's environment** (from `server/`, in the checkout linked to Vercel):
+   ```bash
+   vercel env add PLAZA_PASS_PRIVATE_KEY production   # paste the private key
+   vercel env add PLAZA_ROOM_URL production           # wss://<worker host>/room
+   ```
+4. **Main app.** `just deploy` as usual. The server now builds the sibling crate
+   `../plaza-protocol`; the prebuilt deploy compiles on this machine, so that works. A Vercel
+   cloud build would not find it (it uploads only `server/`).
+5. **Check.** Open https://social-challenge.enzo.health/plaza in two browsers as two people; the
+   bar should read "Live · 2 online".
+
+Later changes: `just plaza-deploy` for the room, `just deploy` for the main app. A change to a
+message in `plaza-protocol/` needs both, room first if it only adds things.
+
+Rotating the key: make a new pair, deploy the room with the new public key, then replace
+`PLAZA_PASS_PRIVATE_KEY` in Vercel and redeploy the main app. In between, pages show "the room
+refused this page's pass: its signature does not match the room's key" and keep retrying.
+
+Allowed origins are exact (`PLAZA_ALLOWED_ORIGINS` in `plaza/wrangler.toml`): Vercel preview
+URLs are not on the list, so previews show the plaza without live mode.

@@ -1,0 +1,22 @@
+[package]
+name = "plaza-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+publish = false
+description = "The plaza's shared wire protocol, pass format and pure room rules (native + wasm32)."
+
+[lib]
+path = "src/lib.rs"
+
+# Native-only dev helper: key generation reads /dev/urandom directly, so no RNG crate is pulled in.
+[[bin]]
+name = "plaza-keys"
+path = "src/bin/plaza-keys.rs"
+
+[dependencies]
+# No default features: no RNG/getrandom anywhere; signing and verification need none.
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"] }
+base64 = { version = "0.22.1", default-features = false, features = ["std"] }
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }

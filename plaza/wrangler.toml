@@ -1,0 +1,38 @@
+# The plaza room: a Rust Worker (workers-rs) with one Durable Object, the room.
+# Local: `npx wrangler dev` (see README.md). Deploy: `just plaza-deploy` (see docs/deploying.md).
+name = "plaza-room"
+# The company Cloudflare account (Dan@enzo.health's Account). Pinned so a deploy from a login with
+# several accounts never asks, and never lands in the wrong one.
+account_id = "d091bf86b4e6d6f7c22dc681ec8e83a9"
+main = "build/index.js"
+compatibility_date = "2026-11-01"
+
+[build]
+# Installs the pinned worker-build into .tools/ on first use, then builds the wasm + JS shim.
+command = "sh ./build.sh"
+watch_dir = ["src", "../plaza-protocol/src"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+# The room keeps nothing in storage (only an alarm to reap sockets that never said hello).
+# SQLite-backed classes are the kind the Workers free plan allows.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# Production values. Local development overrides both from .dev.vars (checked in, nothing secret),
+# which also turns on the localhost-any-port switch that must never be set here.
+[vars]
+# The site allowed to open the room's WebSocket.
+PLAZA_ALLOWED_ORIGINS = "https://social-challenge.enzo.health"
+# The PRODUCTION public key (base64, 32 bytes) matching PLAZA_PASS_PRIVATE_KEY in Vercel. Public,
+# so it lives here. Empty until the production pair exists: `just plaza-keygen`. While it is empty
+# the room refuses every pass with `room_misconfigured`, and `just plaza-deploy` refuses to deploy.
+PLAZA_PASS_PUBLIC_KEY = "f0SVFKOYydoXspbeRaR1hv3PysW0AvWosIlwydzYu+c="
+
+[dev]
+ip = "127.0.0.1"
+port = 8787
+local_protocol = "http"

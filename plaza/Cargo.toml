@@ -1,0 +1,16 @@
+[package]
+name = "plaza-room"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+publish = false
+description = "The plaza room: a Cloudflare Worker + Durable Object relaying who is where."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+plaza-protocol = { path = "../plaza-protocol" }
+worker = "=0.9.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

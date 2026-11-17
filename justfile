@@ -28,6 +28,48 @@ run-prod:
     cd server && cargo build --release --bin linkedin-challenge-server
     cd server && set -a && . ./.env.local && set +a && DATABASE_URL="$DATABASE_URL_UNPOOLED" PORT=3312 ./target/release/linkedin-challenge-server
 
+# Two browsers signed in as two demo people (<first-name>@demo.test / demopassword, e.g. ada@ and
+# ben@) see each other at http://localhost:3312/plaza. The room listens on ws://127.0.0.1:8787/room.
+# Uses its own database file (server/plaza-demo.db) and the DEV-ONLY pass keys in plaza/dev-keys.env.
+# Run the plaza locally: the web server with demo data plus the live room (wrangler dev, no login).
+plaza-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d plaza/node_modules ] || (cd plaza && npm ci --no-audit --no-fund)
+    set -a; . plaza/dev-keys.env; set +a
+    trap 'kill 0' EXIT
+    (cd plaza && WRANGLER_SEND_METRICS=false npx wrangler dev </dev/null) &
+    cd server
+    export SEED_DEMO=1 DATABASE_URL=turso:plaza-demo.db
+    # `cargo dev` (rebuilds on change) needs cargo-nextrs; without it, a plain run serves the same app.
+    if command -v nextrs >/dev/null; then cargo dev; else cargo run --bin linkedin-challenge-server; fi
+
+# Prints the pair in your terminal only. Put the private key in Vercel (never in git, never in chat):
+#   cd server && vercel env add PLAZA_PASS_PRIVATE_KEY production
+# and the public key in plaza/wrangler.toml (PLAZA_PASS_PUBLIC_KEY), which is committed.
+# Generate a PRODUCTION plaza pass key pair.
+plaza-keygen:
+    cargo run --quiet --manifest-path plaza-protocol/Cargo.toml --bin plaza-keys -- keygen
+
+# Needs a Cloudflare login first (`cd plaza && npx wrangler login`). Refuses to deploy without a
+# production public key in plaza/wrangler.toml, or with the dev-only one. Prints the Worker's URL;
+# the room is wss://<that host>/room, which goes in Vercel as PLAZA_ROOM_URL.
+# Deploy the plaza room (the Cloudflare Worker and its Durable Object).
+plaza-deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    key=$(sed -n 's/^PLAZA_PASS_PUBLIC_KEY *= *"\(.*\)"$/\1/p' plaza/wrangler.toml)
+    dev=$(sed -n 's/^PLAZA_PASS_PUBLIC_KEY=//p' plaza/dev-keys.env)
+    [ -n "$key" ] || { echo "plaza/wrangler.toml has no PLAZA_PASS_PUBLIC_KEY yet: run \`just plaza-keygen\` and put the public key there" >&2; exit 1; }
+    [ "$key" != "$dev" ] || { echo "plaza/wrangler.toml has the DEV-ONLY public key (plaza/dev-keys.env); anyone can sign passes for it. Use a production pair: \`just plaza-keygen\`" >&2; exit 1; }
+    [ "$(printf %s "$key" | base64 -d 2>/dev/null | wc -c)" = 32 ] || { echo "PLAZA_PASS_PUBLIC_KEY in plaza/wrangler.toml is not base64 of 32 bytes" >&2; exit 1; }
+    [ -d plaza/node_modules ] || (cd plaza && npm ci --no-audit --no-fund)
+    cd plaza && WRANGLER_SEND_METRICS=false npx wrangler deploy
+
+# Verify the plaza room against a local wrangler dev that the test starts and stops itself.
+test-plaza-room:
+    node scripts/test-plaza-room.mjs
+
 # Ensure the local account and Q3 World Cup challenge exist without resetting synced data.
 seed-local:
     cd server && DATABASE_URL=turso:linkedin.db cargo run --bin seed-local

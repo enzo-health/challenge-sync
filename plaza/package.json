@@ -1,0 +1,12 @@
+{
+  "name": "plaza-room",
+  "private": true,
+  "description": "Local tooling for the plaza room (wrangler dev, and the ws client the room test uses).",
+  "scripts": {
+    "dev": "WRANGLER_SEND_METRICS=false wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.164.0",
+    "ws": "8.23.0"
+  }
+}

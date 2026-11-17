@@ -1,0 +1,7 @@
+# worker-build output, cargo, the locally installed worker-build, npm, wrangler's local state.
+build/
+target/
+.tools/
+node_modules/
+.wrangler/
+.build-lock/
