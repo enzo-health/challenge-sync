@@ -239,20 +239,7 @@ pub async fn lottery_entrants(
         })
         .collect();
 
-    let created = Post::fields().created_at();
-    let posts = Post::filter(
-        created
-            .clone()
-            .ge(week.starts_at)
-            .and(created.lt(week.ends_at))
-            .and(Post::fields().is_repost().eq(false)),
-    )
-    .exec(&mut *db)
-    .await?;
-    let mut counts: HashMap<i64, usize> = HashMap::new();
-    for post in &posts {
-        *counts.entry(post.member_id).or_default() += 1;
-    }
+    let counts = original_post_counts(db, week).await?;
 
     let (entrants, audience) = split_draw(members, &counts, week);
 
@@ -270,6 +257,29 @@ pub async fn lottery_entrants(
         entrants,
         audience,
     })
+}
+
+/// How many original posts (not reshares) each member published during `week`, by member id: the
+/// one place that decides who "posted that week". A member with none is absent. One query, filtered
+/// by time in the database; a post stored without a creation time (0) is in no real week. Deleted
+/// members are not filtered out here: callers list members themselves and leave the deleted out.
+/// Used by the draw ([`lottery_entrants`]) and the plaza's star (`plaza::roster`).
+pub async fn original_post_counts(db: &mut Db, week: LotteryWeek) -> ApiResult<HashMap<i64, usize>> {
+    let created = Post::fields().created_at();
+    let posts = Post::filter(
+        created
+            .clone()
+            .ge(week.starts_at)
+            .and(created.lt(week.ends_at))
+            .and(Post::fields().is_repost().eq(false)),
+    )
+    .exec(&mut *db)
+    .await?;
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for post in &posts {
+        *counts.entry(post.member_id).or_default() += 1;
+    }
+    Ok(counts)
 }
 
 /// What the draw needs to know about a (not deleted) member.
@@ -322,7 +332,7 @@ fn split_draw(
 }
 
 /// Name order, case-insensitive, then id so equal names keep a stable order.
-fn by_name(a: (&str, i64), b: (&str, i64)) -> std::cmp::Ordering {
+pub(crate) fn by_name(a: (&str, i64), b: (&str, i64)) -> std::cmp::Ordering {
     a.0.to_lowercase().cmp(&b.0.to_lowercase()).then(a.1.cmp(&b.1))
 }
 

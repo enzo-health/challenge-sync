@@ -9,6 +9,7 @@ pub mod dto;
 pub mod enroll;
 pub mod lottery;
 pub mod models;
+pub mod plaza;
 pub mod reads;
 pub mod reports;
 pub mod scoring;
