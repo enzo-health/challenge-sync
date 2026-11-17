@@ -1,8 +1,10 @@
 # LinkedIn data collection — research notes
 
 > Status: research from public reverse-engineering write-ups. LinkedIn's internal API is
-> undocumented and changes often. Every endpoint here is treated as **best-effort** in code,
-> wrapped in try/catch, with a DOM-scrape fallback. Verify against the live site before trusting.
+> undocumented and changes often. Every endpoint here is treated as **best-effort** in code
+> (`extension/linkedin.js`): each collector degrades to `null` rather than throwing. The collectors
+> are tested against a real signed-in LinkedIn account by `scripts/test-extension-e2e.mjs`, the
+> live tier of `just check` (see [local-check-signoff.md](local-check-signoff.md)).
 
 ## Why run inside the browser
 

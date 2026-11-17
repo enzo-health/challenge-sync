@@ -14,35 +14,17 @@ invocation, and that is the decision to make before anything else.
 | Protection | SSO off — the app is public, and authenticates its own users |
 | Seeding | `SEED_DEMO` unset, so no demo org exists in production |
 
-## Read this first: the database is not solved
+## Database
 
-The app currently uses Toasty's `turso` driver against a local file (`turso:linkedin.db`). Two
-things follow, and neither is obvious:
+Production runs on Postgres (Neon). Local development uses a Turso/SQLite file
+(`turso:linkedin.db`). Toasty is built with both its `turso` and `postgresql` drivers
+(`server/Cargo.toml`) and picks one from the `DATABASE_URL` scheme, so no code differs between the
+two.
 
-**Toasty's Turso driver is local-only, at every published version.** Confirmed against 0.9.0, not
-just the 0.7.0 we pin. `Turso::new(url)` accepts `turso::memory:` or `turso:/path/to/file` and nothing
-else — no remote URL, no auth token, no replica sync. Pointing `DATABASE_URL` at a
-`libsql://…turso.io` URL fails to parse rather than failing to connect.
-
-The capability exists one layer down: the underlying `turso` crate ships a `sync` feature and a
-sync engine, already in our dependency tree. Toasty simply does not surface it. Hosted Turso is
-therefore a Toasty driver change, not a Turso limitation — worth knowing if it becomes a priority.
-
-**A file-backed database cannot work on Vercel anyway.** Functions get an ephemeral filesystem and
-run as many concurrent instances as traffic demands. Each would open its own copy, writes would land
-in whichever instance served the request, and everything would vanish when the instance froze. It
-wouldn't error — it would silently lose data, which is worse.
-
-So pick one:
-
-| Option | What changes | Trade-off |
-|---|---|---|
-| **Postgres on Vercel** (Neon, Supabase, Vercel Postgres) — **chosen** | Enable the `postgresql` feature alongside `turso`; Toasty picks the driver from the `DATABASE_URL` scheme, so local dev keeps its file | The paved road for serverless. No code change beyond the feature flag. |
-| **A host with a real disk** (Fly.io + volume, a small VM, Docker) | Keep the Turso file driver; mount a volume | No database migration, but you leave the one-command Vercel deploy behind. |
-| **Wait for remote Turso** | Nothing yet | Only sensible if hosted Turso specifically is the goal. Track the driver's support. |
-
-I'd take Postgres if the goal is "deploy on Vercel this week", and Fly.io if the goal is "keep the
-current data layer". The rest of this document assumes you have a reachable `DATABASE_URL`.
+A file-backed database cannot work on Vercel: functions get an ephemeral filesystem and run as many
+concurrent instances as traffic demands, so each would open its own copy and writes would silently
+vanish. Toasty's `turso` driver is also local-only (no remote URL or auth token), so hosted Turso is
+not an option without a driver change.
 
 ## One-time setup
 
@@ -121,9 +103,6 @@ See [distributing-the-extension.md](distributing-the-extension.md).
 
 ## What is not set up yet
 
-- **No custom domain.** Deployments get a generated `*.vercel.app` hostname, which changes per
-  project rename. Set a domain before distributing the extension, because the URL is baked into
-  every installed copy and changing it means shipping an update to every user.
 - **No backups.** `backup-db.sh` is a local-development tool. A hosted database needs its provider's
   backups turned on.
 - **No error reporting.** Failures print to the Vercel function log and nowhere else.

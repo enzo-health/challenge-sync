@@ -24,23 +24,26 @@ name. Full reference: <https://nextrs-docs.vercel.app/docs/conventions>
 ## Never hand-roll what the scaffold generates
 
 `build.rs`, `src/main.rs`, `api/index.rs`, `vercel.json`,
-`scripts/deploy-prebuilt.sh`, `rust-toolchain.toml`, and the `client/`
-package are generated wiring. Extend them if you must; do not replace them
-with improvised versions. Never edit generated output: `client/src/generated/**`,
-`client/openapi.json`, and `public/dist/` are rebuilt on every build. The
-seams for app code are `app/**`, `client/src/index.ts`, and
-`client/package.json`.
+`scripts/deploy-prebuilt.sh`, `rust-toolchain.toml`, and `.nextrs/` (the
+client template, `ensure-client.mjs`, `dump-openapi.rs`) are generated wiring.
+Extend them if you must; do not replace them with improvised versions. Never
+edit generated output: `.nextrs/client/**` (git-ignored, materialized from
+`.nextrs/template/client/`), `.nextrs/openapi.json`, and `public/dist/` are
+rebuilt. The seams for app code are `app/**`, `components/**`, `src/**`, and
+`package.json`.
 
 ## The client package and the bare-import rule
 
-`client/` is a real npm package; pages import it as `@server/client`.
+`.nextrs/client/` is a real npm package, linked as a workspace of this
+directory's `package.json`; pages import it as `@linkedin-challenge/client`.
 
-- **Every bare import used by any `.tsx` file must be installed in
-  `client/package.json`** — the bundler resolves from `client/node_modules`
+- **Every bare import used by any `.tsx` file must be installed in this
+  directory's `package.json`** — the bundler resolves from `node_modules`
   and errors on unresolved bare imports. Adding a dependency means adding it
-  there and running `npm install` in `client/`.
+  there and running `npm install` here.
 - **Never hand-write API types.** After changing `#[nextrs::api]` routes, run
-  `npm run gen` in `client/` to regenerate the typed hooks from OpenAPI.
+  `cargo nextrs client generate` (or `npm run client:generate`, which skips
+  the extension's client) to regenerate the typed hooks from OpenAPI.
   Guide: <https://nextrs-docs.vercel.app/docs/typesafe-client>
 
 ## Seeding pages (`prefetch.rs`)
@@ -63,7 +66,7 @@ hard load fetches nothing it was seeded).
 ## Dev loop
 
 ```bash
-cargo dev   # build + run + watch (alias for nextrs-dev; `cargo install cargo-nextrs-dev` once)
+cargo dev   # build + run + watch (alias for `nextrs dev`; `cargo install cargo-nextrs` once)
 ```
 
 Don't substitute a hand-rolled watch script — the runner knows which inputs

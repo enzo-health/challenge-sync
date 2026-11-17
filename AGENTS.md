@@ -18,7 +18,7 @@ It is two apps that never call each other; the browser talks to both.
 - **Room** (`plaza/`): a Rust Cloudflare Worker with one Durable Object (workers-rs, compiled to
   wasm). It verifies the pass with the public key, then relays join, leave, move, jump, high five
   and chat. It stores nothing and never logs chat or passes. Deployed separately from the main
-  app (not deployed yet); see `plaza/README.md`.
+  app; see `plaza/README.md` and the plaza section of `docs/deploying.md`.
 - **Protocol** (`plaza-protocol/`): the pass format, the WebSocket messages and the room's pure
   rules, compiled natively by the server and to wasm32 by the room. Keep it dependency-light.
   A change to a message is a change to three places: this crate, the room, and
