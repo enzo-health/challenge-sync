@@ -5,6 +5,8 @@
 //! standing are the same data viewed three ways, and duplicating the read per screen is how the
 //! three drift apart.
 
+use std::borrow::Borrow;
+
 use serde::{Deserialize, Serialize};
 use toasty::Db;
 use utoipa::ToSchema;
@@ -302,17 +304,26 @@ pub struct AdminOverview {
 /// The signed-in member. Routes are scoped to the session's own org, so there is no slug to check
 /// against — the session *is* the scope.
 pub async fn require_member(db: &mut Db, headers: &http::HeaderMap) -> ApiResult<Member> {
-    crate::auth::current_member(db, headers)
-        .await
-        .ok_or_else(|| ApiError::unauthorized("sign-in required"))
+    member_required(crate::auth::current_member(db, headers).await)
+}
+
+/// [`require_member`]'s decision on a member already resolved from the session, for a caller
+/// (a page's `prefetch.rs`) that looked the session up once for several reads.
+pub fn member_required<M: Borrow<Member>>(member: Option<M>) -> ApiResult<M> {
+    member.ok_or_else(|| ApiError::unauthorized("sign-in required"))
 }
 
 /// The signed-in member, if challenges are open to them (see `auth::can_use_challenges`). Every
 /// challenge API checks this instead of `require_member`. Refused with a 401, as the system
 /// routes refuse a non-admin.
 pub async fn require_challenge_user(db: &mut Db, headers: &http::HeaderMap) -> ApiResult<Member> {
-    let member = require_member(db, headers).await?;
-    if !crate::auth::can_use_challenges(&member) {
+    challenge_user_required(crate::auth::current_member(db, headers).await)
+}
+
+/// [`require_challenge_user`]'s decision on a member already resolved from the session.
+pub fn challenge_user_required<M: Borrow<Member>>(member: Option<M>) -> ApiResult<M> {
+    let member = member_required(member)?;
+    if !crate::auth::can_use_challenges(member.borrow()) {
         return Err(ApiError::unauthorized("challenges are open to admins only for now"));
     }
     Ok(member)
@@ -351,8 +362,14 @@ pub async fn require_challenge_owner(
 
 /// The signed-in member, but only if they operate the product itself.
 pub async fn require_system_admin(db: &mut Db, headers: &http::HeaderMap) -> ApiResult<Member> {
-    crate::auth::current_system_admin(db, headers)
-        .await
+    system_admin_required(crate::auth::current_member(db, headers).await)
+}
+
+/// [`require_system_admin`]'s decision on a member already resolved from the session. Like
+/// `auth::current_system_admin`, it judges the member the session acts as, never an impersonator.
+pub fn system_admin_required<M: Borrow<Member>>(member: Option<M>) -> ApiResult<M> {
+    member
+        .filter(|member| member.borrow().is_system_admin)
         .ok_or_else(|| ApiError::unauthorized("system admin session required"))
 }
 

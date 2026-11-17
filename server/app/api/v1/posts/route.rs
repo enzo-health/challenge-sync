@@ -10,11 +10,10 @@ use axum::extract::rejection::QueryRejection;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use http::HeaderMap;
+use linkedin_challenge_server::reads;
 use linkedin_challenge_server::reports::{
-    PostReport, ReportFilter, ReportParams, csv_filename, post_report, report_csv,
-    require_report_access,
+    PostReport, ReportParams, csv_filename, report_csv, require_report_access,
 };
-use linkedin_challenge_server::util::now_unix;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -84,21 +83,17 @@ pub async fn get(
         "csv" => true,
         _ => return Err(ApiError::bad_request("format must be json or csv")),
     };
-    let filter = ReportFilter::new(
-        ReportParams {
-            since: q.since.as_deref(),
-            until: q.until.as_deref(),
-            timezone: q.timezone.as_deref(),
-            min_impressions: q.min_impressions,
-            min_out_of_network_impressions: q.min_out_of_network_impressions,
-            member_id: q.member_id,
-            contains: q.contains.as_deref(),
-            include_reposts: q.include_reposts.unwrap_or(false),
-        },
-        now_unix(),
-    )
-    .map_err(ApiError::bad_request)?;
-    let report = timing.span("db", post_report(&mut db, &filter)).await?;
+    let filter = reads::report_filter(ReportParams {
+        since: q.since.as_deref(),
+        until: q.until.as_deref(),
+        timezone: q.timezone.as_deref(),
+        min_impressions: q.min_impressions,
+        min_out_of_network_impressions: q.min_out_of_network_impressions,
+        member_id: q.member_id,
+        contains: q.contains.as_deref(),
+        include_reposts: q.include_reposts.unwrap_or(false),
+    })?;
+    let report = reads::report(&mut db, &timing, &filter).await?;
 
     if !csv {
         return Ok(Json(report).into_response());

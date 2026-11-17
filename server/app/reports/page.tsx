@@ -16,18 +16,14 @@ import { fmtInt, fmtLocalDate, initials } from "../../components/format";
 import { PostText } from "../../components/member-results";
 import { ConfirmModal } from "../../components/confirm-modal";
 import { errorText } from "../../components/host-block";
+// A `Date`'s UTC offset as `-07:00`, at that moment (so a range across a clock change is right).
+import { offsetOf } from "../../components/timezone";
 
 // The dates on this page are the viewer's own days. The browser knows its time zone and its
 // daylight saving rules, so it turns each day into exact instants and the server needs no time
 // zone database: a Thursday-evening post in Denver stays in Thursday's week.
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** A `Date`'s UTC offset as `-07:00`, at that moment (so a range across a clock change is right). */
-function offsetOf(date: Date): string {
-  const minutes = -date.getTimezoneOffset();
-  const abs = Math.abs(minutes);
-  return `${minutes < 0 ? "-" : "+"}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
-}
 
 /** A local wall-clock time as ISO 8601 with its offset, e.g. `2026-11-12T23:59:59-07:00`. */
 function localIso(date: Date): string {

@@ -10,17 +10,13 @@ import type { StatsBucket, StatsCounts, StatsMetric, StatsOverview, StatsYou } f
 import { useGetStatsOverview } from "@linkedin-challenge/client/react-query";
 import { fmtInt, fmtLocalDate, initials } from "../components/format";
 import { EXTENSION_STORE_URL, WRITE_POST_URL } from "../components/links";
+// The browser's UTC offset right now as `-07:00`, sent the same way the Reports page sends it
+// (and the shape the `tz` cookie carries, so app/prefetch.rs can seed this query).
+import { offsetNow } from "../components/timezone";
 
 const PERIODS = [7, 30, 90] as const;
 type Days = (typeof PERIODS)[number];
 
-const pad = (n: number) => String(n).padStart(2, "0");
-/** The browser's UTC offset right now as `-07:00`, sent the same way the Reports page sends it. */
-function offsetNow(): string {
-  const minutes = -new Date().getTimezoneOffset();
-  const abs = Math.abs(minutes);
-  return `${minutes < 0 ? "-" : "+"}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
-}
 const ZONE_NAME = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const pct = (share: number) => {

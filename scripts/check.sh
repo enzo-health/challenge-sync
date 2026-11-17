@@ -7,7 +7,9 @@
 # per site visit, the failure categories), the extension's own sync code against a
 # local server (scripts/test-extension-sync-e2e.mjs), the signed-out page's polling and the app's
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
-# ~8s, no extension and no LinkedIn), and every server e2e. Each server e2e starts
+# ~8s, no extension and no LinkedIn), that the pages' prefetch.rs seeds are what a browser renders
+# from, with no fetch for them (scripts/test-prefetch-browser.mjs, the same way, ~5s), and every
+# server e2e. Each server e2e starts
 # its own debug server on PORT=0 (a free port the OS picks) with a fresh temporary database, so
 # they share nothing.
 #
@@ -228,6 +230,8 @@ server_steps=(
   "sync-banner python3 server/scripts/test-sync-banner-e2e.py"
   "server-timing python3 server/scripts/test-server-timing-e2e.py"
   "lottery python3 server/scripts/test-lottery-e2e.py"
+  "prefetch python3 server/scripts/test-prefetch-e2e.py"
+  "prefetch-browser node scripts/test-prefetch-browser.mjs"
 )
 if [ $build_ok = 0 ]; then
   run cargo-test bash -c 'cd server && cargo test --quiet'

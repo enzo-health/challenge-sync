@@ -11,10 +11,14 @@ import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { SyncPausedBanner } from "../components/sync-paused";
 import { HostBlockedBanner, installHostBlockDetection, useHostBlockRetryPolicy } from "../components/host-block";
 import { AppSpeedInsights } from "../components/speed-insights";
+import { rememberTimezone } from "../components/timezone";
 
 // Before any query or mutation runs: a request our host's firewall stopped becomes one
 // recognisable error app-wide (see components/host-block.tsx).
 installHostBlockDetection();
+// For the server: the pages that ask for the viewer's own days are seeded under the offset this
+// cookie carries (components/timezone.ts).
+rememberTimezone();
 
 function NavLink({ href, pathname }: { href: string; pathname: string }) {
   // Prefix-match nested routes; exact-match the landing page and the owner overview so they don't
@@ -73,8 +77,8 @@ class PathnameProvider extends Component<
 }
 
 function Sidebar() {
-  // Unseeded on purpose: session state is per-viewer, so seeding it into the streamed HTML would
-  // make the page uncacheable for no gain.
+  // Seeded by the busiest pages' prefetch.rs (src/seeds.rs), with /api/challenges for an admin.
+  // Per-viewer data in the HTML is fine: no page response carries a cache header.
   const { data } = useGetMe();
   // Challenges are admin-only for now, and the API refuses everyone else, so only admins ask.
   const { data: challengeData } = useGetChallenges({
