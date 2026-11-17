@@ -9,7 +9,10 @@
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
 # ~8s, no extension and no LinkedIn), that the pages' prefetch.rs seeds are what a browser renders
 # from, with no fetch for them (scripts/test-prefetch-browser.mjs, the same way, ~5s), the lottery
-# page's Spin/Reset controls (scripts/test-lottery-browser.mjs, the same way), and every server e2e. Each server e2e starts
+# page's Spin/Reset controls (scripts/test-lottery-browser.mjs, the same way), the plaza (its protocol
+# crate's tests, the room against a local `wrangler dev` that scripts/test-plaza-room.mjs starts and
+# stops itself, and two browsers in the room together, scripts/test-plaza-browser.mjs), and every
+# server e2e. Each server e2e starts
 # its own debug server on PORT=0 (a free port the OS picks) with a fresh temporary database, so
 # they share nothing.
 #
@@ -210,6 +213,18 @@ else
 fi
 
 # --- checks that need no server binary ------------------------------------------------------------
+# The plaza room's local tooling (wrangler and the test's WebSocket client), installed on first use.
+plaza_tools() { [ -d plaza/node_modules ] || (cd plaza && npm ci --no-audit --no-fund); }
+plaza_room() { node scripts/test-plaza-room.mjs; }
+if run_now plaza-tools plaza_tools; then
+  plaza_ok=0
+  run plaza-room plaza_room
+else
+  plaza_ok=1
+  skip plaza-room unmet "not run: plaza-tools failed"
+fi
+run plaza-connection node scripts/test-plaza-connection.mjs
+run plaza-protocol cargo test --quiet --manifest-path plaza-protocol/Cargo.toml
 run syntax syntax
 run refresh-window node scripts/test-refresh-window.mjs
 run extension-worker node scripts/test-extension-worker.mjs
@@ -235,13 +250,18 @@ server_steps=(
   "prefetch-browser node scripts/test-prefetch-browser.mjs"
   "lottery-browser node scripts/test-lottery-browser.mjs"
   "avatar-browser node scripts/test-avatar-browser.mjs"
+  "plaza python3 server/scripts/test-plaza-e2e.py"
 )
+# Needs the server binary and the room's tooling.
+plaza_browser() { node scripts/test-plaza-browser.mjs; }
 if [ $build_ok = 0 ]; then
   run cargo-test bash -c 'cd server && cargo test --quiet'
   for entry in "${server_steps[@]}"; do
     # shellcheck disable=SC2086
     run $entry
   done
+  if [ $plaza_ok = 0 ]; then run plaza-browser plaza_browser
+  else skip plaza-browser unmet "not run: plaza-tools failed"; fi
   case $live in
     run)
       steps+=(live-preflight extension-e2e join-flow-e2e)
@@ -259,6 +279,7 @@ if [ $build_ok = 0 ]; then
 else
   skip cargo-test unmet "not run: cargo-build failed"
   for entry in "${server_steps[@]}"; do skip "${entry%% *}" unmet "not run: cargo-build failed"; done
+  skip plaza-browser unmet "not run: cargo-build failed"
   skip extension-e2e unmet "not run: cargo-build failed"
   skip join-flow-e2e unmet "not run: cargo-build failed"
 fi

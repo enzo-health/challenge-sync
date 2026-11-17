@@ -28,6 +28,23 @@ run-prod:
     cd server && cargo build --release --bin linkedin-challenge-server
     cd server && set -a && . ./.env.local && set +a && DATABASE_URL="$DATABASE_URL_UNPOOLED" PORT=3312 ./target/release/linkedin-challenge-server
 
+# Two browsers signed in as two demo people (<first-name>@demo.test / demopassword, e.g. ada@ and
+# ben@) see each other at http://localhost:3312/plaza. The room listens on ws://127.0.0.1:8787/room.
+# Uses its own database file (server/plaza-demo.db) and the DEV-ONLY pass keys in plaza/dev-keys.env.
+# Run the plaza locally: the web server with demo data plus the live room (wrangler dev, no login).
+plaza-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d plaza/node_modules ] || (cd plaza && npm ci --no-audit --no-fund)
+    set -a; . plaza/dev-keys.env; set +a
+    trap 'kill 0' EXIT
+    (cd plaza && WRANGLER_SEND_METRICS=false npx wrangler dev </dev/null) &
+    cd server && SEED_DEMO=1 DATABASE_URL=turso:plaza-demo.db cargo dev
+
+# Verify the plaza room against a local wrangler dev that the test starts and stops itself.
+test-plaza-room:
+    node scripts/test-plaza-room.mjs
+
 # Ensure the local account and Q3 World Cup challenge exist without resetting synced data.
 seed-local:
     cd server && DATABASE_URL=turso:linkedin.db cargo run --bin seed-local
