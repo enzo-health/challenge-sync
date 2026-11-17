@@ -70,17 +70,14 @@ in git and must never be used in a deployment.
 New key pair: `cargo run --manifest-path plaza-protocol/Cargo.toml --bin plaza-keys -- keygen`
 (also `public <private>`, `sign <private> <member> <exp>`, `verify <public> <pass> <now>`).
 
-## What a real deploy would need (not done)
+## Deploying
 
-- A Cloudflare account and `wrangler login` (or an API token) — Durable Objects on the free plan
-  must be SQLite-backed, which the `new_sqlite_classes` migration in `wrangler.toml` already is.
-- A fresh key pair: the private key in the main server's environment, the public key as
-  `PLAZA_PASS_PUBLIC_KEY` on the Worker (e.g. `wrangler secret put PLAZA_PASS_PUBLIC_KEY`, though
-  it is not secret).
-- `PLAZA_ALLOWED_ORIGINS` set to the site's origin(s); `PLAZA_ALLOW_LOCALHOST_ANY_PORT` unset.
-  `wrangler.toml` deliberately has no `[vars]`, so a deploy without them refuses every origin
-  and every pass with an error naming the missing variable.
-- `wrangler deploy`, then point the page at `wss://<worker host>/room`.
+Not deployed yet. The steps, in order, are in `../docs/deploying.md` ("The plaza room"): make a
+production key pair (`just plaza-keygen`), put the public key in `wrangler.toml`, `just
+plaza-deploy`, then give the main app the private key and the room's `wss://…/room` URL.
+`wrangler.toml` carries the production origin and public key; `.dev.vars` overrides them locally.
+Durable Objects on the Workers free plan must be SQLite-backed, which the `new_sqlite_classes`
+migration already is.
 
 ## Versions
 

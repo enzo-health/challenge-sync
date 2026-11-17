@@ -19,8 +19,15 @@ class_name = "Room"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
-# No [vars] on purpose: a deploy must set PLAZA_PASS_PUBLIC_KEY and PLAZA_ALLOWED_ORIGINS itself.
-# Local development values live in .dev.vars (checked in; they hold nothing secret).
+# Production values. Local development overrides both from .dev.vars (checked in, nothing secret),
+# which also turns on the localhost-any-port switch that must never be set here.
+[vars]
+# The site allowed to open the room's WebSocket.
+PLAZA_ALLOWED_ORIGINS = "https://social-challenge.enzo.health"
+# The PRODUCTION public key (base64, 32 bytes) matching PLAZA_PASS_PRIVATE_KEY in Vercel. Public,
+# so it lives here. Empty until the production pair exists: `just plaza-keygen`. While it is empty
+# the room refuses every pass with `room_misconfigured`, and `just plaza-deploy` refuses to deploy.
+PLAZA_PASS_PUBLIC_KEY = ""
 
 [dev]
 ip = "127.0.0.1"
