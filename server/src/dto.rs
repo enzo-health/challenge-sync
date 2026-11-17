@@ -1122,6 +1122,9 @@ pub struct SystemMemberRow {
     /// unless asked to show them.
     #[schema(required)]
     pub deleted_at: Option<i64>,
+    /// Left out of the weekly lottery draw (`Member::lottery_excluded`); changed through
+    /// `PUT /api/admin/lottery/exclusions/{id}`.
+    pub lottery_excluded: bool,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -1211,6 +1214,7 @@ pub async fn system_overview(db: &mut Db) -> ApiResult<SystemOverview> {
             is_system_admin: user.is_system_admin,
             created_at: user.created_at,
             deleted_at: user.deleted_at,
+            lottery_excluded: user.lottery_excluded,
         })
         .collect();
     // The generated code is the one to share; the fixed `JOIN_CODE` is shown only until an admin

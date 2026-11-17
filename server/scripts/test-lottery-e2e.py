@@ -18,7 +18,7 @@
   re-including restores them; the member detail reports the flag and whether the viewer may set
   it; regular members (on others and on themselves), anonymous callers and an admin viewing as a
   regular member are refused with the lottery's own 401; a missing member is a 404, a deleted one
-  a 400;
+  a 400; the system panel's member list (`/api/system/overview`) reports `lotteryExcluded`;
 * no email, LinkedIn URN or profile URL anywhere in the response.
 
 The server's clock is pinned with DEV_CLOCK_OFFSET_FILE (debug builds only): accounts are created
@@ -292,6 +292,12 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         check('an admin excludes themselves (an organiser who did not post)',
               exclude(admin, ada_id, True) == {'memberId': ada_id, 'excluded': True})
         check('the member detail reports the flag once set', admin.request(f'/api/members/{ada_id}')['lotteryExcluded'] is True)
+        def system_flags():
+            return {m['id']: m['lotteryExcluded'] for m in admin.request('/api/system/overview')['members']}
+        flags = system_flags()
+        check('the system member list reports who is excluded',
+              flags[ann_id] is True and flags[ada_id] is True and flags[cat_id] is False and flags[eve_id] is False
+              and all(isinstance(value, bool) for value in flags.values()))
         excluded_week = lottery(admin, '2026-11-09')
         by_id = {row['memberId']: row for row in excluded_week['audience']}
         check('an excluded poster is not an entrant', ann_id not in ids(excluded_week['entrants']))
@@ -321,6 +327,7 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         exclude(admin, ann_id, False)
         exclude(admin, ada_id, False)
         check('re-including restores the poster and the week is as it was', lottery(admin, '2026-11-09') == week)
+        check('and the system member list shows nobody excluded again', not any(system_flags().values()))
 
         print(json.dumps({'result': 'PASS', 'checks': len(checks)}), flush=True)
     finally:

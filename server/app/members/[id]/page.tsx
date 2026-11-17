@@ -4,7 +4,11 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { MemberDetail } from "@linkedin-challenge/client";
-import { getGetAdminLotteryQueryKey, useSetLotteryExclusion } from "@linkedin-challenge/client/react-query";
+import {
+  getGetAdminLotteryQueryKey,
+  getGetSystemOverviewQueryKey,
+  useSetLotteryExclusion,
+} from "@linkedin-challenge/client/react-query";
 import { MemberResults } from "../../../components/member-results";
 import { errorText } from "../../../components/host-block";
 
@@ -26,9 +30,10 @@ function LotteryExclusion({ detail }: { detail: MemberDetail }) {
             setError(`Changing the lottery exclusion failed: ${res.data.error}`);
             return;
           }
-          // This page (every challenge and page of it) and every week of the lottery.
+          // This page (every challenge and page of it), every week of the lottery, and All users.
           void queryClient.invalidateQueries({ queryKey: [`/api/members/${detail.memberId}`] });
           void queryClient.invalidateQueries({ queryKey: getGetAdminLotteryQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetSystemOverviewQueryKey() });
         },
         onError: (err) => setError(errorText(err, `${fallback} (${err instanceof Error ? err.message : String(err)})`)),
       },

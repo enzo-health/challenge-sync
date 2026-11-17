@@ -9,7 +9,10 @@
 //   3. after the win there is no spin button at all, only a small Reset;
 //   4. Reset brings Spin back, and only then can a second draw happen; a held Enter key (repeated
 //      keydowns) on Spin draws once too;
-//   5. a poster excluded from the draw is named in "Not in the draw", and is not in the draw list.
+//   5. a poster excluded from the draw is named in "Not in the draw", and is not in the draw list;
+//   6. All users (/system): a user's menu has "Exclude from lottery", which marks the row with a
+//      badge and stores the flag (read back from /api/system/overview), then reads "Include in
+//      lottery" and undoes it; a deleted account's menu does not offer it.
 //
 // Requires chromium on PATH and `cargo build` in server/. Software WebGL is asked for; without it
 // the page uses its text-only draw, which has the same controls (the output says which ran).
@@ -132,13 +135,16 @@ const week = {
   ],
 };
 await page.call("Fetch.enable", { patterns: [{ urlPattern: "*/api/admin/lottery*" }] });
-page.on("Fetch.requestPaused", ({ requestId }) =>
-  page.call("Fetch.fulfillRequest", {
-    requestId,
-    responseCode: 200,
-    responseHeaders: [{ name: "content-type", value: "application/json" }],
-    body: Buffer.from(JSON.stringify(week)).toString("base64"),
-  }));
+// Only the week itself (GET /api/admin/lottery[?week=]); the exclusions route under it is real.
+page.on("Fetch.requestPaused", ({ requestId, request }) =>
+  new URL(request.url).pathname === "/api/admin/lottery"
+    ? page.call("Fetch.fulfillRequest", {
+        requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: "content-type", value: "application/json" }],
+        body: Buffer.from(JSON.stringify(week)).toString("base64"),
+      })
+    : page.call("Fetch.continueRequest", { requestId }));
 // Count the draws: drawWinnerIndex asks crypto for one 32-bit word per attempt.
 await page.call("Page.addScriptToEvaluateOnNewDocument", {
   source: `window.__draws = 0;
@@ -213,6 +219,53 @@ try {
   check("a held Enter key on Spin draws once more, not once per repeat", (await evaluate("window.__draws")) === 2,
     `draws: ${await evaluate("window.__draws")}`);
   check("and again only Reset is offered", (await evaluate(`document.querySelectorAll(".lottery-go").length`)) === 0);
+
+  // 6. The All users page's row menu.
+  const toSystem = new Promise((res) => page.on("Page.loadEventFired", res));
+  await page.call("Page.navigate", { url: `${base}/system` });
+  await toSystem;
+  await waitFor(`document.querySelectorAll("tbody tr .who").length > 1`, "the user list");
+  // The first ordinary user: not an admin (Make admin in the menu), not deleted.
+  const target = await evaluate(`(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((r) => !r.classList.contains("deleted-row") && !r.querySelector(".badge:not(.muted)"));
+    return row?.querySelector(".who span:last-child")?.innerText ?? null;
+  })()`);
+  assert.ok(target, "no ordinary user in the demo data");
+  const rowOf = `[...document.querySelectorAll("tbody tr")].find((r) => r.querySelector(".who span:last-child")?.innerText === ${JSON.stringify(target)})`;
+  const badge = `!!${rowOf}?.querySelector(".badge.muted")?.innerText.includes("excluded from lottery")`;
+  const menuItems = async () => {
+    await evaluate(`${rowOf}.querySelector('button[aria-label^="Actions for"]').click()`);
+    await waitFor(`[...document.querySelectorAll("button")].some((b) => /in lottery|from lottery/.test(b.innerText))`, "the row menu");
+    return evaluate(`[...document.querySelectorAll("button")].map((b) => b.innerText.trim()).filter((t) => /lottery/.test(t))`);
+  };
+  const choose = (label) => evaluate(`[...document.querySelectorAll("button")].find((b) => b.innerText.trim() === ${JSON.stringify(label)}).click()`);
+  const flag = () => evaluate(`fetch("/api/system/overview").then((r) => r.json()).then((o) => o.members.find((m) => m.displayName === ${JSON.stringify(target)}).lotteryExcluded)`);
+
+  check("an ordinary user starts included, with no badge", (await flag()) === false && !(await evaluate(badge)), target);
+  check("their menu offers Exclude from lottery", JSON.stringify(await menuItems()) === JSON.stringify(["Exclude from lottery"]));
+  await choose("Exclude from lottery");
+  await waitFor(badge, "the excluded badge");
+  check("choosing it marks the row and stores the flag", (await flag()) === true);
+  check("the menu then offers Include in lottery", JSON.stringify(await menuItems()) === JSON.stringify(["Include in lottery"]));
+  await choose("Include in lottery");
+  await waitFor(`!(${badge})`, "the badge to go");
+  check("including them again clears the badge and the flag", (await flag()) === false);
+
+  // A deleted account: delete one through the API, then look at its menu with deleted rows shown.
+  const victim = await evaluate(`fetch("/api/system/overview").then((r) => r.json()).then((o) => o.members.find((m) => !m.isSystemAdmin && m.deletedAt == null && m.displayName !== ${JSON.stringify(target)}))`);
+  const deleted = await evaluate(`fetch("/api/system/members/${victim.id}", { method: "DELETE" }).then((r) => r.status)`);
+  assert.equal(deleted, 200, `deleting ${victim.displayName} failed: ${deleted}`);
+  const reload = new Promise((res) => page.on("Page.loadEventFired", res));
+  await page.call("Page.reload");
+  await reload;
+  await waitFor(`document.querySelectorAll("tbody tr .who").length > 1`, "the user list after reload");
+  await evaluate(`(() => { const box = [...document.querySelectorAll(".user-filters label.check input")][0]; if (!box.checked) box.click(); })()`);
+  const deletedRow = `[...document.querySelectorAll("tbody tr.deleted-row")].find((r) => r.querySelector(".who span:last-child")?.innerText === ${JSON.stringify(victim.displayName)})`;
+  await waitFor(`!!${deletedRow}`, "the deleted row");
+  await evaluate(`${deletedRow}.querySelector('button[aria-label^="Actions for"]').click()`);
+  await waitFor(`[...document.querySelectorAll("button")].some((b) => b.innerText.trim() === "Restore account")`, "the deleted row's menu");
+  const offered = await evaluate(`[...document.querySelectorAll("button")].map((b) => b.innerText.trim()).filter((t) => /lottery/.test(t))`);
+  check("a deleted account's menu does not offer the lottery item", offered.length === 0, offered.join(", "));
 
   console.log(JSON.stringify({ result: "PASS", checks: passed, stage }));
 } finally {
