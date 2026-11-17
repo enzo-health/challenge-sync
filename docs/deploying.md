@@ -130,6 +130,14 @@ See [distributing-the-extension.md](distributing-the-extension.md).
 
 ## The plaza room
 
+| | |
+|---|---|
+| Room | `wss://plaza-room.dan-d09.workers.dev/room` (health: https://plaza-room.dan-d09.workers.dev/health) |
+| Cloudflare | Worker `plaza-room` in `Dan@enzo.health's Account` (`account_id` pinned in `plaza/wrangler.toml`), first deployed 2026-11-17 |
+| Vercel | `PLAZA_PASS_PRIVATE_KEY` (sensitive) and `PLAZA_ROOM_URL` set for production |
+
+The steps below are how that was set up, and how to redo it.
+
 `/plaza` needs a second deployment: the room in `plaza/`, a Cloudflare Worker with one Durable
 Object. The main app and the room never call each other; they share only a key pair. The main
 app signs a 60-second pass with the private key, the room checks it with the public key.
