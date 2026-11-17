@@ -1,0 +1,28 @@
+# The plaza room: a Rust Worker (workers-rs) with one Durable Object, the room.
+# Local use only so far: `npx wrangler dev` (see README.md). Nothing here has been deployed.
+name = "plaza-room"
+main = "build/index.js"
+compatibility_date = "2026-11-01"
+
+[build]
+# Installs the pinned worker-build into .tools/ on first use, then builds the wasm + JS shim.
+command = "sh ./build.sh"
+watch_dir = ["src", "../plaza-protocol/src"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+# The room keeps nothing in storage (only an alarm to reap sockets that never said hello).
+# SQLite-backed classes are the kind the Workers free plan allows.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# No [vars] on purpose: a deploy must set PLAZA_PASS_PUBLIC_KEY and PLAZA_ALLOWED_ORIGINS itself.
+# Local development values live in .dev.vars (checked in; they hold nothing secret).
+
+[dev]
+ip = "127.0.0.1"
+port = 8787
+local_protocol = "http"
