@@ -27,7 +27,7 @@ PLAZA_ALLOWED_ORIGINS = "https://social-challenge.enzo.health"
 # The PRODUCTION public key (base64, 32 bytes) matching PLAZA_PASS_PRIVATE_KEY in Vercel. Public,
 # so it lives here. Empty until the production pair exists: `just plaza-keygen`. While it is empty
 # the room refuses every pass with `room_misconfigured`, and `just plaza-deploy` refuses to deploy.
-PLAZA_PASS_PUBLIC_KEY = ""
+PLAZA_PASS_PUBLIC_KEY = "f0SVFKOYydoXspbeRaR1hv3PysW0AvWosIlwydzYu+c="
 
 [dev]
 ip = "127.0.0.1"
