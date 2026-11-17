@@ -113,6 +113,12 @@ pub async fn connect() -> Db {
     add_column(&mut db, "ALTER TABLE invites ADD COLUMN email TEXT").await;
     // Deleting an account marks it rather than removing it, so past reports keep their numbers.
     add_column(&mut db, "ALTER TABLE members ADD COLUMN deleted_at BIGINT").await;
+    // Organisers post too, but should not win their own prize draw (see `lottery.rs`).
+    add_column(
+        &mut db,
+        "ALTER TABLE members ADD COLUMN lottery_excluded BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    .await;
     // Email is the login identifier for everyone, so the database enforces uniqueness too — the
     // signup-time check alone cannot rule out two concurrent registrations of one address.
     // NULL (extension-only members) is exempt from the constraint on both engines.
@@ -336,6 +342,10 @@ pub struct Member {
     /// account cannot sign in or sync and is left off boards and lists, but everything recorded
     /// for it is kept so it can be restored and past reports do not change.
     pub deleted_at: Option<i64>,
+    /// Left out of the weekly lottery draw by an admin (e.g. the organisers, who post but should
+    /// not win). They still post and score as usual; the lottery lists them as not in the draw.
+    #[default(false)]
+    pub lottery_excluded: bool,
 
     #[has_many]
     pub posts: toasty::Deferred<Vec<Post>>,

@@ -949,3 +949,4 @@ main:has(.lottery-page) { max-width: 1240px; }
   .lottery-empty h2 { color: #f4ecff; }
   .lottery-empty p { color: #cbbcf0; }
 }
+.lottery-excluded { margin: 0 0 12px; color: var(--muted); }

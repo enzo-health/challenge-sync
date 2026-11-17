@@ -158,7 +158,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
   const reducedMotion = useReducedMotion();
   const [webgl] = useState(detectWebGL);
   const entrants: StageEntrant[] = week.entrants; // the API sorts by name: that is the wheel order
-  const audience: StagePerson[] = week.audience;
+  const audience: StagePerson[] = week.audience; // the crowd, excluded posters included
+  // Posted this week but left out of the draw by an admin (set on the member's page).
+  const excluded = week.audience.filter((p) => p.excluded);
+  const didNotPost = week.audience.filter((p) => !p.excluded);
   const [phase, setPhase] = useState<ShowPhase>("ready");
   const [spin, setSpin] = useState<SpinRequest | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -256,6 +259,11 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
 
   return (
     <>
+      {excluded.length > 0 && (
+        <p className="small lottery-excluded">
+          <strong>Not in the draw:</strong> {excluded.map((p) => p.displayName).join(", ")}
+        </p>
+      )}
       {n === 1 && (
         <div className="notice lottery-solo">
           Only <strong>{entrants[0].displayName}</strong> posted this week, so they win by default. Give the
@@ -266,7 +274,9 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         <div className="lottery-empty">
           <h2>No draw this week</h2>
           <p>
-            Nobody published an original post this week, so the wheel stays in its box.
+            {excluded.length > 0
+              ? "Only people left out of the draw published an original post this week, so the wheel stays in its box."
+              : "Nobody published an original post this week, so the wheel stays in its box."}
             {audience.length > 0 && " The crowd turned up anyway."}
           </p>
         </div>
@@ -327,10 +337,10 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
             </ul>
           </div>
         )}
-        {audience.length > 0 && (
+        {didNotPost.length > 0 && (
           <div className="panel lottery-list audience">
-            <h2>Didn&rsquo;t post this week ({audience.length})</h2>
-            <p className="small">{audience.map((p) => p.displayName).join(", ")}</p>
+            <h2>Didn&rsquo;t post this week ({didNotPost.length})</h2>
+            <p className="small">{didNotPost.map((p) => p.displayName).join(", ")}</p>
           </div>
         )}
       </section>

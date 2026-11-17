@@ -13,6 +13,12 @@
 * the default is the last complete week; the current week is allowed and flagged incomplete with
   no next week; a week that is not a Monday, has not started, or is not a date gets a 400 saying so;
 * anonymous callers, regular members, and a system admin viewing as a regular member get a 401;
+* exclusions (`PUT /api/admin/lottery/exclusions/{id}`): an excluded poster is not an entrant but
+  is in the audience with `excluded: true`; someone excluded who did not post is ordinary audience;
+  re-including restores them; the member detail reports the flag and whether the viewer may set
+  it; regular members (on others and on themselves), anonymous callers and an admin viewing as a
+  regular member are refused with the lottery's own 401; a missing member is a 404, a deleted one
+  a 400;
 * no email, LinkedIn URN or profile URL anywhere in the response.
 
 The server's clock is pinned with DEV_CLOCK_OFFSET_FILE (debug builds only): accounts are created
@@ -209,6 +215,8 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         check('a member of another legacy org who did not post is in the audience', lea_id in audience and lea_id not in entrants)
         check('of this test\'s members, the entrants are exactly Ann, Cat and Kim', set(entrants) & ours == {ann_id, cat_id, kim_id})
         check('nobody is in both lists', not set(entrants) & audience)
+        check('with no exclusions, nobody in the audience is marked excluded',
+              not any(row['excluded'] for row in week['audience']))
         check('every non-deleted member who existed that week is listed', ours - {eve_id, gus_id} <= set(entrants) | audience)
         check('entrants and audience are sorted by name ignoring case, then id',
               names_sorted(week['entrants']) and names_sorted(week['audience'])
@@ -218,7 +226,8 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
             if isinstance(value, dict):
                 for key, inner in value.items():
                     assert key in {'weekStart', 'weekEnd', 'startsAt', 'endsAt', 'timezone', 'isComplete', 'previousWeek',
-                                   'nextWeek', 'entrants', 'audience', 'memberId', 'displayName', 'postCount'}, (path, key)
+                                   'nextWeek', 'entrants', 'audience', 'memberId', 'displayName', 'postCount',
+                                   'excluded'}, (path, key)
                     leaks(inner, f'{path}.{key}')
             elif isinstance(value, list):
                 for index, inner in enumerate(value):
@@ -269,6 +278,49 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         viewer = Client(f'ada-lottery-e2e@enzo.health', 'LotteryE2E!pass123')
         viewer.request('/api/system/impersonate', {'memberId': ann_id})
         check('a system admin viewing as a regular member is refused too', lottery(viewer, status=401) == refusal)
+
+        # --- exclusions -----------------------------------------------------------------------------
+        def exclude(client, member_id, excluded, status=200):
+            return client.request(f'/api/admin/lottery/exclusions/{member_id}', {'excluded': excluded},
+                                  method='PUT', status=status)
+
+        own = admin.request(f'/api/members/{ada_id}')
+        check('the member detail reports the flag (off) and that an admin may change it',
+              own['lotteryExcluded'] is False and own['canSetLotteryExcluded'] is True)
+
+        check('an admin excludes a poster', exclude(admin, ann_id, True) == {'memberId': ann_id, 'excluded': True})
+        check('an admin excludes themselves (an organiser who did not post)',
+              exclude(admin, ada_id, True) == {'memberId': ada_id, 'excluded': True})
+        check('the member detail reports the flag once set', admin.request(f'/api/members/{ada_id}')['lotteryExcluded'] is True)
+        excluded_week = lottery(admin, '2026-11-09')
+        by_id = {row['memberId']: row for row in excluded_week['audience']}
+        check('an excluded poster is not an entrant', ann_id not in ids(excluded_week['entrants']))
+        check('an excluded poster is in the audience, reported as excluded',
+              by_id.get(ann_id, {}).get('excluded') is True and by_id[ann_id]['displayName'] == 'Ann Two')
+        check('someone excluded who did not post is ordinary audience', by_id.get(ada_id, {}).get('excluded') is False)
+        check('only the excluded poster is marked',
+              [row['memberId'] for row in excluded_week['audience'] if row['excluded']] == [ann_id])
+        check('the other entrants are unchanged', set(ids(excluded_week['entrants'])) & ours == {cat_id, kim_id})
+        check('the audience stays sorted by name with the excluded poster in it', names_sorted(excluded_week['audience']))
+        leaks(excluded_week)
+        check('an excluded week leaks nothing either', True)
+
+        code, _, _ = anon.raw(f'/api/admin/lottery/exclusions/{ann_id}', {'excluded': False}, method='PUT')
+        check('anonymous callers cannot change an exclusion (401)', code == 401)
+        check('a regular member cannot re-include someone (the lottery\'s own 401)',
+              exclude(ann, ann_id, False, status=401) == refusal)
+        check('a regular member cannot exclude someone else', exclude(bob, cat_id, True, status=401) == refusal)
+        check('a regular member cannot exclude themselves', exclude(cat, cat_id, True, status=401) == refusal)
+        check('a system admin viewing as a regular member cannot either', exclude(viewer, cat_id, True, status=401) == refusal)
+        check('the refusals changed nothing', ann_id not in ids(lottery(admin, '2026-11-09')['entrants'])
+              and cat_id in ids(lottery(admin, '2026-11-09')['entrants']))
+        check('a member who does not exist is a 404', exclude(admin, 999999, True, status=404)['error'] == 'no such member')
+        check('a deleted member is refused (400), saying why',
+              exclude(admin, eve_id, True, status=400)['error'] == 'this account has been deleted; restore it first')
+
+        exclude(admin, ann_id, False)
+        exclude(admin, ada_id, False)
+        check('re-including restores the poster and the week is as it was', lottery(admin, '2026-11-09') == week)
 
         print(json.dumps({'result': 'PASS', 'checks': len(checks)}), flush=True)
     finally:
