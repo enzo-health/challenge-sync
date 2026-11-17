@@ -76,7 +76,7 @@ function Tiles({ layout }: { layout: Layout }) {
   );
 }
 
-function Cloud({ position, scale, drift }: { position: [number, number, number]; scale: number; drift: number }) {
+export function Cloud({ position, scale, drift }: { position: [number, number, number]; scale: number; drift: number }) {
   const ref = useRef<THREE.Group>(null);
   useFrame((state) => {
     if (ref.current && drift) ref.current.position.x = position[0] + Math.sin(state.clock.elapsedTime * 0.05 * drift + position[1]) * 1.5;
@@ -99,7 +99,7 @@ function Cloud({ position, scale, drift }: { position: [number, number, number];
   );
 }
 
-function Balloons({ position, colors, animate }: { position: [number, number, number]; colors: string[]; animate: boolean }) {
+export function Balloons({ position, colors, animate }: { position: [number, number, number]; colors: string[]; animate: boolean }) {
   const ref = useRef<THREE.Group>(null);
   useFrame((state) => {
     if (!ref.current || !animate) return;
