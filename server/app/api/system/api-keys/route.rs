@@ -8,32 +8,11 @@ use axum::{Extension, Json};
 use http::HeaderMap;
 use linkedin_challenge_server::auth::create_api_key;
 use linkedin_challenge_server::dto::require_system_admin;
-use linkedin_challenge_server::models::{ApiKey, Member};
+use linkedin_challenge_server::reads::{self, ApiKeyList};
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use toasty::Db;
 use utoipa::ToSchema;
-
-#[derive(Deserialize, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiKeyRow {
-    pub id: i64,
-    pub name: String,
-    /// Name of the admin who created it, when they still exist.
-    #[schema(required)]
-    pub created_by_name: Option<String>,
-    pub created_at: i64,
-    /// Unix seconds of the last request made with it, or null if it has never been used.
-    #[schema(required)]
-    pub last_used_at: Option<i64>,
-}
-
-#[derive(Deserialize, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiKeyList {
-    pub keys: Vec<ApiKeyRow>,
-}
 
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -63,33 +42,7 @@ pub async fn get(
     headers: HeaderMap,
 ) -> Result<Json<ApiKeyList>, ApiError> {
     require_system_admin(&mut db, &headers).await?;
-    let mut keys = ApiKey::all().exec(&mut db).await?;
-    keys.sort_by(|a, b| b.id.cmp(&a.id));
-    let mut creator_ids: Vec<i64> = keys.iter().map(|key| key.created_by).collect();
-    creator_ids.sort_unstable();
-    creator_ids.dedup();
-    let names: HashMap<i64, String> = if creator_ids.is_empty() {
-        HashMap::new()
-    } else {
-        Member::filter(Member::fields().id().in_list(creator_ids))
-            .exec(&mut db)
-            .await?
-            .into_iter()
-            .map(|member| (member.id, member.display_name))
-            .collect()
-    };
-    Ok(Json(ApiKeyList {
-        keys: keys
-            .into_iter()
-            .map(|key| ApiKeyRow {
-                id: key.id,
-                created_by_name: names.get(&key.created_by).cloned(),
-                name: key.name,
-                created_at: key.created_at,
-                last_used_at: key.last_used_at,
-            })
-            .collect(),
-    }))
+    Ok(Json(reads::api_keys(&mut db).await?))
 }
 
 #[nextrs::api(

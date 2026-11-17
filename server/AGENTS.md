@@ -43,6 +43,23 @@ seams for app code are `app/**`, `client/src/index.ts`, and
   `npm run gen` in `client/` to regenerate the typed hooks from OpenAPI.
   Guide: <https://nextrs-docs.vercel.app/docs/typesafe-client>
 
+## Seeding pages (`prefetch.rs`)
+
+`/`, `/me`, `/challenges` and `/reports` have a `prefetch.rs`, so their first
+queries arrive in the HTML (and on link intent via `/__nx/prefetch`) instead of
+a second round trip. This app's GET handlers take `HeaderMap` to resolve the
+session, which makes them ineligible for the generated seed companions, so the
+entries are built by hand in `src/seeds.rs`: the handler's body lives in
+`src/reads.rs`, and the `route.rs` handler and the seed call the same function
+after the same auth decision (`dto::member_required` and friends); a refusal
+seeds nothing. A seed is only read if its key is exactly what the page's hook
+asks for on first render, `[url]` or `[url, params]` with absent params left
+out (never `null`), URL state and defaults included. The time-zone keyed ones
+(Overview, Reports) rely on the `tz` cookie the shell writes
+(`components/timezone.ts`). Tests: `scripts/test-prefetch-e2e.py` (keys and
+data against the API, refusals) and `../scripts/test-prefetch-browser.mjs` (a
+hard load fetches nothing it was seeded).
+
 ## Dev loop
 
 ```bash
@@ -85,6 +102,14 @@ there is real, not a broken clock. Every query is also timed at the driver
 (`src/db_timing.rs`): `RUST_LOG=app::db=debug` logs each one, and operations
 over 250 ms log a warning by default. Those driver events can't reach
 `Server-Timing`: Toasty runs queries on its own connection task.
+
+Link preloading is checked from the browser console: `__nx_preload_debug__()`
+draws the prediction and logs each preload, `__nx_preload_stats__()` tables the
+wait under each strategy. To collect real visitors' numbers, run with
+`NEXTRS_PRELOAD_STATS=1` (off by default, never set in deployed config): the
+shell POSTs to `/__nx/preload-stats` and each report logs as a `nextrs::preload`
+info event, which `init_tracing`'s default filter (`warn,nextrs::preload=info`)
+shows locally and in Vercel function logs; any `RUST_LOG` replaces that filter.
 
 ### Reading the timings
 

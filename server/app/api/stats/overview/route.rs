@@ -8,8 +8,8 @@ use axum::extract::rejection::QueryRejection;
 use axum::{Extension, Json};
 use http::HeaderMap;
 use linkedin_challenge_server::dto::require_member;
-use linkedin_challenge_server::stats::{StatsOverview, StatsPeriod, stats_overview};
-use linkedin_challenge_server::util::now_unix;
+use linkedin_challenge_server::reads;
+use linkedin_challenge_server::stats::StatsOverview;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -44,7 +44,5 @@ pub async fn get(
 ) -> Result<Json<StatsOverview>, ApiError> {
     let viewer = timing.span("session", require_member(&mut db, &headers)).await?;
     let Query(q) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
-    let now = now_unix();
-    let period = StatsPeriod::new(q.days, q.timezone.as_deref(), now).map_err(ApiError::bad_request)?;
-    Ok(Json(stats_overview(&mut db, &timing, &period, Some(viewer.id), now).await?))
+    Ok(Json(reads::stats(&mut db, &timing, &viewer, q.days, q.timezone.as_deref()).await?))
 }

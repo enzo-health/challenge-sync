@@ -4,7 +4,8 @@
 use axum::extract::Query;
 use axum::{Extension, Json};
 use http::HeaderMap;
-use linkedin_challenge_server::dto::{PostPage, require_member, user_posts};
+use linkedin_challenge_server::dto::{PostPage, require_member};
+use linkedin_challenge_server::reads;
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use toasty::Db;
@@ -31,19 +32,14 @@ pub async fn get(
     Query(q): Query<MyPostsQuery>,
 ) -> Result<Json<PostPage>, ApiError> {
     let user = timing.span("session", require_member(&mut db, &headers)).await?;
-    let sort = q.sort.as_deref().unwrap_or("newest");
-    if !["newest", "oldest", "impressions", "reactions", "comments", "reposts", "sends", "saves"]
-        .contains(&sort)
-    {
-        return Err(ApiError::bad_request("invalid post sort"));
-    }
-    let posts = user_posts(
+    let posts = reads::my_posts(
         &mut db,
-        user.id,
+        &timing,
+        &user,
         q.filter.as_deref(),
-        sort,
-        q.page.unwrap_or(1).max(1),
-        q.page_size.unwrap_or(50).clamp(1, 100),
+        q.sort.as_deref(),
+        q.page,
+        q.page_size,
     );
-    Ok(Json(timing.span("db", posts).await?))
+    Ok(Json(posts.await?))
 }

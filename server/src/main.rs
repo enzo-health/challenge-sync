@@ -10,6 +10,7 @@ use linkedin_challenge_server::{models, seed};
 
 include!(concat!(env!("OUT_DIR"), "/nextrs_routes.rs"));
 
+use axum::serve::ListenerExt;
 use axum::Extension;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -77,6 +78,15 @@ async fn main() {
         .unwrap_or(3312);
     let listener = bind(port).await;
     let local = listener.local_addr().expect("listener has a local addr");
+    // axum 0.8's `serve` leaves Nagle's algorithm on. A streamed response (every file under
+    // /dist) goes out as headers, then body; with Nagle the body waits for the ACK of the
+    // headers, which the client's TCP stack (delayed ACK) holds for ~40 ms. So some script loads took 42 ms
+    // instead of 2, at random, which is what made scripts/test-signin-polling.mjs flaky.
+    let listener = listener.tap_io(|tcp| {
+        if let Err(error) = tcp.set_nodelay(true) {
+            eprintln!("could not set TCP_NODELAY on a connection: {error}");
+        }
+    });
     println!("listening on http://{local}");
 
     axum::serve(listener, app)

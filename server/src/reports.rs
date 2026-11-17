@@ -609,7 +609,18 @@ pub async fn require_report_access(
         if crate::auth::api_key_from_bearer(db, headers).await.is_none() {
             return Err(crate::web::ApiError::unauthorized("invalid or revoked API key"));
         }
-    } else if crate::auth::current_system_admin(db, headers).await.is_none() {
+    } else {
+        report_session_access(crate::auth::current_member(db, headers).await.as_ref())?;
+    }
+    Ok(())
+}
+
+/// The website-session half of [`require_report_access`], on a member already resolved from the
+/// session: only an admin will do (the member the session acts as, as `auth::current_system_admin`
+/// judges it). Only for requests without an `Authorization: Bearer` header; one with it is judged
+/// by the key alone.
+pub fn report_session_access(member: Option<&crate::models::Member>) -> crate::web::ApiResult<()> {
+    if !member.is_some_and(|member| member.is_system_admin) {
         return Err(crate::web::ApiError::unauthorized(
             "send an API key as `Authorization: Bearer csk_...`",
         ));
