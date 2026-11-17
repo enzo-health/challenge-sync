@@ -376,6 +376,24 @@ try {
   check("the help states the high-five rule",
     (await A.evaluate(`document.querySelector(".plaza-help").textContent`)).includes("Jump next to someone at the same time to high five"));
 
+  // 5b. Ada changes her avatar and comes back (a reload: the room sees a join); Ben's open page
+  // picks up her new look from a roster refetch, without a reload of its own.
+  const newHair = OPTIONS.hair.filter((h) => h !== "none").at(-1);
+  const newAvatar = Object.fromEntries(
+    ["skin", "outfit", "accent", "hairColor", "facialHair", "hat", "ears", "eyes", "brows", "nose", "mouth", "build"].map((k) => [k, OPTIONS[k][1]]),
+  );
+  Object.assign(newAvatar, { v: 2, hair: newHair });
+  const saved = await A.evaluate(`fetch("/api/me/avatar", { method: "PUT", headers: { "content-type": "application/json" }, body: ${JSON.stringify(JSON.stringify(newAvatar))} }).then((r) => r.status)`);
+  assert.equal(saved, 200, `saving Ada's avatar: ${saved}`);
+  check("Ben's page starts with Ada's old look", (await B.evaluate(`window.__plaza.avatarOf(${adaId})?.hair ?? "generated"`)) !== newHair);
+  const reloaded = new Promise((res) => A.on("Page.loadEventFired", res));
+  await A.call("Page.reload");
+  await reloaded;
+  await A.waitFor(`window.__plaza?.state.kind === "live"`, "Ada back in the plaza");
+  await B.waitFor(`window.__plaza.avatarOf(${adaId})?.hair === ${JSON.stringify(newHair)}`, "Ben's page to get Ada's new avatar");
+  check("Ada saves a new avatar and rejoins: Ben's open page draws her new look", true, `hair ${newHair}`);
+  await B.waitFor(`window.__plaza.online.includes(${adaId})`, "Ada online again for Ben");
+
   // 6. Ben leaves.
   await browser.call("Target.closeTarget", { targetId: B.targetId });
   await A.waitFor(`!window.__plaza.online.includes(${benId}) && window.__plaza.wandering.includes(${benId})`, "Ben to go back to wandering");

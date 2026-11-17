@@ -206,7 +206,7 @@ function Plaza({ roster, refetchRoster }: { roster: PlazaRoster; refetchRoster: 
     setPeople(peopleNow());
   }, [roster, sim, peopleNow]);
   // Someone the room knows and the roster doesn't: drawn at once (default look, no name), and the
-  // roster is fetched again, at most every UNKNOWN_REFETCH_MS.
+  // roster is fetched again (also on every join, which may carry a changed avatar), at most every UNKNOWN_REFETCH_MS.
   const refetchRef = useRef(refetchRoster);
   refetchRef.current = refetchRoster;
   const unknown = useRef({ last: 0, timer: 0 });
@@ -294,7 +294,8 @@ function Plaza({ roster, refetchRoster }: { roster: PlazaRoster; refetchRoster: 
               setAnnouncement(`${nameOf(msg.id) ?? "Someone"} says: ${msg.text}`);
               break;
           }
-          if (strangers) noteUnknown();
+          // A join may be someone back from /me/avatar with a new look: fetch the roster again too.
+          if (strangers || msg.t === "join") noteUnknown();
         },
         offline: () => {
           sim.allLeave();
@@ -437,6 +438,8 @@ function Plaza({ roster, refetchRoster }: { roster: PlazaRoster; refetchRoster: 
       get bubbles() {
         return Object.fromEntries(sim.people.filter((p) => p.bubble).map((p) => [p.id, p.bubble]));
       },
+      /** The saved avatar this page draws someone from (null: their generated look). */
+      avatarOf: (id: number) => avatars.current.get(id) ?? null,
       get stars() {
         return sim.people.filter((p) => p.posted).map((p) => p.id);
       },

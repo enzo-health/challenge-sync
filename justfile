@@ -39,7 +39,10 @@ plaza-dev:
     set -a; . plaza/dev-keys.env; set +a
     trap 'kill 0' EXIT
     (cd plaza && WRANGLER_SEND_METRICS=false npx wrangler dev </dev/null) &
-    cd server && SEED_DEMO=1 DATABASE_URL=turso:plaza-demo.db cargo dev
+    cd server
+    export SEED_DEMO=1 DATABASE_URL=turso:plaza-demo.db
+    # `cargo dev` (rebuilds on change) needs cargo-nextrs; without it, a plain run serves the same app.
+    if command -v nextrs >/dev/null; then cargo dev; else cargo run --bin linkedin-challenge-server; fi
 
 # Verify the plaza room against a local wrangler dev that the test starts and stops itself.
 test-plaza-room:
