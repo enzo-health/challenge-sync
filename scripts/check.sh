@@ -136,7 +136,8 @@ skip() {
 syntax() {
   local f
   for f in extension/*.js; do node --check "$f" || return 1; done
-  bash -n extension/build.sh
+  bash -n extension/build.sh &&
+  bash -n server/scripts/timings.sh
 }
 
 # --- the live tier's helpers ---------------------------------------------------------------------

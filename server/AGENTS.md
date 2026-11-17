@@ -86,6 +86,32 @@ there is real, not a broken clock. Every query is also timed at the driver
 over 250 ms log a warning by default. Those driver events can't reach
 `Server-Timing`: Toasty runs queries on its own connection task.
 
+### Reading the timings
+
+`scripts/timings.sh` GETs the busy API routes and prints, per route, the
+status, curl's own timings and every `Server-Timing` segment (median of `N`
+warm requests on one connection, default 3). It only reads headers, so it is
+safe against prod; it is a dev/admin tool, and the cookie is optional (without
+one the signed-in routes show their 401):
+
+```bash
+scripts/timings.sh http://127.0.0.1:3000 'session=...'
+N=5 scripts/timings.sh https://social-challenge.enzo.health
+```
+
+Segments are server-side milliseconds inside the function: `mw` middleware,
+`seed` page data, `handler` the route fn, `total` the whole request, `session`
+the cookie/bearer lookup, `auth` the API-key-or-admin check, `db` / `db-<what>`
+queries, and `route;desc` the pattern that matched. `outside` = TTFB − `total`
+is everything that isn't our code.
+
+The ~70–120 ms a browser sees end to end is mostly network. The request lands
+on Vercel's `sfo1` edge and is forwarded to the function in `pdx1` (Oregon;
+`x-vercel-id: sfo1::pdx1`); Neon is also in Oregon (us-west-2), ~1 ms from the
+function. So a signed-in prod route with one indexed session lookup reads
+`handler` ≈ 2–3 ms while TTFB is ~75 ms or more. Signed-out `0.0` is real (no
+I/O). For per-query driver logs, run with `RUST_LOG=app::db=debug`.
+
 ## Deploys are prebuilt
 
 Git auto-builds are OFF (`vercel.json` sets `git.deploymentEnabled: false`);
