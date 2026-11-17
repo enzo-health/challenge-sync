@@ -227,7 +227,7 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
                 for key, inner in value.items():
                     assert key in {'weekStart', 'weekEnd', 'startsAt', 'endsAt', 'timezone', 'isComplete', 'previousWeek',
                                    'nextWeek', 'entrants', 'audience', 'memberId', 'displayName', 'postCount',
-                                   'excluded'}, (path, key)
+                                   'excluded', 'avatar'}, (path, key)
                     leaks(inner, f'{path}.{key}')
             elif isinstance(value, list):
                 for index, inner in enumerate(value):

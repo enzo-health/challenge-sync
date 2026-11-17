@@ -16,5 +16,14 @@ export default function MyResults() {
     );
   }
 
-  return <PersonalPosts displayName={me.displayName ?? "Your results"} />;
+  return (
+    <PersonalPosts
+      displayName={me.displayName ?? "Your results"}
+      action={
+        <a className="me-avatar-link" href="/me/avatar">
+          Edit my avatar
+        </a>
+      }
+    />
+  );
 }

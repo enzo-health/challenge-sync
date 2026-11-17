@@ -30,6 +30,7 @@ use serde::Serialize;
 use toasty::Db;
 use utoipa::ToSchema;
 
+use crate::avatar::{Avatar, member_avatar};
 use crate::models::{Member, Post};
 use crate::reports::{fmt_local, parse_report_date};
 use crate::util::{civil_from_days, days_from_civil, fmt_date};
@@ -167,6 +168,9 @@ pub struct LotteryEntrant {
     pub display_name: String,
     /// Original posts (reshares not counted) this person published during the week.
     pub post_count: usize,
+    /// Their saved avatar, or null for the look generated from their id.
+    #[schema(required = true)]
+    pub avatar: Option<Avatar>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -177,6 +181,9 @@ pub struct LotteryAudienceMember {
     /// True for someone who posted an original that week but is excluded from the draw by an
     /// admin; false for everyone who simply did not post.
     pub excluded: bool,
+    /// Their saved avatar, or null for the look generated from their id.
+    #[schema(required = true)]
+    pub avatar: Option<Avatar>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -224,6 +231,7 @@ pub async fn lottery_entrants(
         .into_iter()
         .filter(|member| !member.is_deleted())
         .map(|member| Person {
+            avatar: member_avatar(&member),
             id: member.id,
             display_name: member.display_name,
             created_at: member.created_at,
@@ -271,6 +279,8 @@ struct Person {
     created_at: i64,
     /// `Member::lottery_excluded`.
     excluded: bool,
+    /// Their saved avatar (`Member::avatar_json`, validated), if any.
+    avatar: Option<Avatar>,
 }
 
 /// Split the week's members into entrants and audience (see the module docs), each sorted by name.
@@ -288,17 +298,20 @@ fn split_draw(
                 member_id: member.id,
                 display_name: member.display_name,
                 excluded: true,
+                avatar: member.avatar,
             }),
             Some(&post_count) => entrants.push(LotteryEntrant {
                 member_id: member.id,
                 display_name: member.display_name,
                 post_count,
+                avatar: member.avatar,
             }),
             // Someone whose account did not exist yet that week was not in its audience.
             None if member.created_at < week.ends_at => audience.push(LotteryAudienceMember {
                 member_id: member.id,
                 display_name: member.display_name,
                 excluded: false,
+                avatar: member.avatar,
             }),
             None => {}
         }
@@ -419,6 +432,7 @@ mod tests {
             display_name: name.to_string(),
             created_at: w.starts_at - DAY,
             excluded,
+            avatar: None,
         };
         let members = vec![
             person(1, "Ann Posts", false),

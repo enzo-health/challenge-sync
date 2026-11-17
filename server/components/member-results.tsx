@@ -425,7 +425,8 @@ export function MemberResults({
   );
 }
 
-export function PersonalPosts({ displayName }: { displayName: string }) {
+/** `action`: a link or button at the end of the name row (the /me page's "Edit my avatar"). */
+export function PersonalPosts({ displayName, action }: { displayName: string; action?: ReactNode }) {
   const [showMedia, setShowMedia] = useState(false);
   const [{ filter, sort, page }, setParams] = useQueryStates({
     filter: parseAsString.withDefault(""),
@@ -453,6 +454,7 @@ export function PersonalPosts({ displayName }: { displayName: string }) {
           {initials(displayName)}
         </span>
         <h1 style={{ margin: 0 }}>{displayName}</h1>
+        {action}
       </div>
       <p className="small muted">
         <strong>{data.data.followerCount == null ? "Followers not synced yet" : `${fmtInt(data.data.followerCount)} followers`}</strong>

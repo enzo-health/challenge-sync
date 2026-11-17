@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod auth;
+pub mod avatar;
 pub mod db_timing;
 pub mod dto;
 pub mod enroll;

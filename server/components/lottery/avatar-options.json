@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "skin": [
+    "#ffe8d6", "#fff3b0", "#ffd6e0", "#d8f3dc", "#e0e7ff", "#ffe5b4", "#f1e4ff", "#cdf5fd",
+    "#f5cfa9", "#e0ac7e", "#b97a50", "#8a5a3c", "#5b3a29"
+  ],
+  "outfit": [
+    "#ff4d6d", "#ffb703", "#3a86ff", "#2ec4b6", "#8338ec", "#fb5607", "#06d6a0", "#ff70a6", "#4cc9f0", "#f72585"
+  ],
+  "accent": ["#ffffff", "#2b2d42", "#ffd166", "#ef476f", "#118ab2", "#06d6a0", "#ff9f1c"],
+  "hairColor": [
+    "#2b1d3a", "#4a2f1d", "#8b5a2b", "#d9a441", "#e4572e", "#9aa0a6", "#f5f5f5",
+    "#ff70a6", "#3a86ff", "#06d6a0", "#8338ec"
+  ],
+  "hair": [
+    "none", "crew", "buzz", "sidepart", "textured", "receding", "classicbob", "shoulder", "longdown", "ponytail",
+    "bun", "curly", "bob", "long", "swoop", "pigtails", "spiky", "mohawk"
+  ],
+  "facialHair": ["none", "stubble", "moustache", "goatee", "shortbeard", "fullbeard"],
+  "hat": ["none", "beanie", "party", "antenna", "cap", "bow", "sprout"],
+  "ears": ["none", "round", "pointy"],
+  "eyes": ["dot", "big", "sleepy", "happy", "wink", "starry"],
+  "brows": ["none", "soft", "arched", "angry", "worried", "thick"],
+  "nose": ["none", "button", "pointy", "round", "snout"],
+  "mouth": ["smile", "grin", "smirk", "o", "flat", "tooth"],
+  "build": ["signature", "small", "tall", "round", "lanky", "bobble"]
+}

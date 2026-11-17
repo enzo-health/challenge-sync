@@ -3,12 +3,12 @@
 import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { Avatar } from "./avatar";
+import { Avatar, figureMetrics } from "./avatar";
 import { Confetti, type Volley } from "./confetti";
 import { Crowd } from "./crowd";
 import { easeInOutSine, landingRotation, sliceUnderPointer, spinProgress, spinRotation, type SpinPlan } from "./draw";
 import { layoutFor, type Layout, type Spot } from "./layout";
-import { lookFor } from "./look";
+import { resolveLook } from "./look";
 import { Scenery, surfaceAt } from "./scenery";
 import type { LotteryStageProps, Show, ShowPhase, SpinRequest, StageEntrant, StagePerson } from "./types";
 import { Wheel } from "./wheel";
@@ -113,7 +113,7 @@ const smooth = (t: number) => t * t * (3 - 2 * t);
  * The camera: the fitted wide shot, and on a win a smooth push in to a close-up of the winner at
  * the front of the board (back to the wide shot on Reset). Reduced motion cuts instead of moving.
  */
-function CameraRig({ base, show, layout, bottomInset }: { base: RefObject<BasePose>; show: RefObject<Show>; layout: Layout; bottomInset: number }) {
+function CameraRig({ base, show, layout, bottomInset, crownTops }: { base: RefObject<BasePose>; show: RefObject<Show>; layout: Layout; bottomInset: number; crownTops: Map<number, number> }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const height = useThree((s) => s.size.height);
   const blend = useRef(0);
@@ -128,10 +128,16 @@ function CameraRig({ base, show, layout, bottomInset }: { base: RefObject<BasePo
     const k = smooth(blend.current);
     // Frame the winner from the feet to above the crown and name tag, a little from above so the
     // crowd in front stays below the shot.
-    const halfH = 2.5 * Math.max(0.85, layout.stageScale);
+    let halfH = 2.5 * Math.max(0.85, layout.stageScale);
+    // A winner whose crown would rise past that (tall hair, a hat, a tall build: avatar.tsx) gets a
+    // taller shot, its bottom edge where it was.
+    const crown = s.winnerId === null ? 0 : (crownTops.get(s.winnerId) ?? 0);
+    // (+ 0.45 for the name tag riding just above the crown, + 0.3 for most of the winner's hop.)
+    const extra = Math.max(0, (crown + 0.75) * WINNER_GROW * layout.stageScale - (1.25 * layout.stageScale + 0.68 * halfH));
+    halfH += extra / 2;
     const dist = halfH / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const elevation = 0.36;
-    v.focus.set(s.winnerX, s.winnerY + 1.25 * layout.stageScale, s.winnerZ);
+    v.focus.set(s.winnerX, s.winnerY + 1.25 * layout.stageScale + extra / 2, s.winnerZ);
     v.close.set(0, Math.sin(elevation), Math.cos(elevation)).multiplyScalar(dist).add(v.focus);
     // The control bar covers the bottom of the canvas: centre the winner in what is left.
     if (height > 0) v.focus.y -= (Math.min(bottomInset, height * 0.4) / height) * halfH;
@@ -344,7 +350,8 @@ function Scene(props: SceneProps) {
   const { entrants, audience, phase, spin, reducedMotion, layout, show, base, ticker, labelLayer, onSpinEnd, onHoverSlice, onHoverCrowd } = props;
   // Each entrant's wrapper group, for WinnerStep to move the winner forward.
   const groups = useRef(new Map<number, THREE.Group>());
-  const looks = useMemo(() => entrants.map((e) => lookFor(e.memberId)), [entrants]);
+  const looks = useMemo(() => entrants.map((e) => resolveLook(e.memberId, e.avatar)), [entrants]);
+  const crownTops = useMemo(() => new Map(entrants.map((e, i) => [e.memberId, figureMetrics(looks[i]).crownTop])), [entrants, looks]);
   const winnerId = phase === "won" && spin ? entrants[spin.winnerIndex]?.memberId : undefined;
   const { board, wheel } = layout;
 
@@ -364,7 +371,7 @@ function Scene(props: SceneProps) {
   return (
     <>
       <FitCamera points={layout.frame} bottomInset={props.bottomInset ?? 0} base={base} />
-      <CameraRig base={base} show={show} layout={layout} bottomInset={props.bottomInset ?? 0} />
+      <CameraRig base={base} show={show} layout={layout} bottomInset={props.bottomInset ?? 0} crownTops={crownTops} />
       <WinnerStep show={show} layout={layout} entrants={entrants} groups={groups} />
       <Director
         spin={spin}
