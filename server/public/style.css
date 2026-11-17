@@ -786,7 +786,7 @@ table.ledger td:first-child { max-width: 360px; }
 
 /* --- weekly lottery (app/admin/lottery, components/lottery) ---------------------------------- */
 :root {
-  --party-font: Fredoka, "Arial Rounded MT Bold", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --party-font: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", system-ui, sans-serif;
   --party-ink: #2b1d3a;
   --party-pink: #ff4d6d;
   --party-sun: #ffb703;

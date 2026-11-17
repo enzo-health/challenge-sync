@@ -11,7 +11,7 @@ import { layoutFor, type Layout } from "./layout";
 import { lookFor } from "./look";
 import { Scenery, surfaceAt } from "./scenery";
 import type { LotteryStageProps, Show, ShowPhase, SpinRequest, StageEntrant, StagePerson } from "./types";
-import { WHEEL_FONT, Wheel } from "./wheel";
+import { Wheel } from "./wheel";
 
 /** Keeps the whole set in frame at any canvas size: a slightly raised, straight-on view. */
 function FitCamera({ points, bottomInset }: { points: Layout["frame"]; bottomInset: number }) {
@@ -202,7 +202,6 @@ function WinnerLight({ show, layout, entrants }: { show: RefObject<Show>; layout
 interface SceneProps extends LotteryStageProps {
   layout: Layout;
   show: RefObject<Show>;
-  fontsReady: boolean;
   ticker: RefObject<HTMLDivElement | null>;
   labelLayer: RefObject<HTMLDivElement | null>;
   onHoverSlice: (i: number | null) => void;
@@ -210,7 +209,7 @@ interface SceneProps extends LotteryStageProps {
 }
 
 function Scene(props: SceneProps) {
-  const { entrants, audience, phase, spin, reducedMotion, layout, show, fontsReady, ticker, labelLayer, onSpinEnd, onHoverSlice, onHoverCrowd } = props;
+  const { entrants, audience, phase, spin, reducedMotion, layout, show, ticker, labelLayer, onSpinEnd, onHoverSlice, onHoverCrowd } = props;
   const looks = useMemo(() => entrants.map((e) => lookFor(e.memberId)), [entrants]);
   const winnerId = phase === "won" && spin ? entrants[spin.winnerIndex]?.memberId : undefined;
   const { board, wheel } = layout;
@@ -262,7 +261,6 @@ function Scene(props: SceneProps) {
           show={show}
           position={[wheel.x, wheel.y, wheel.z]}
           radius={wheel.radius}
-          fontsReady={fontsReady}
           onHoverSlice={onHoverSlice}
         />
       )}
@@ -308,23 +306,8 @@ export default function LotteryStage(props: LotteryStageProps) {
   // Name tags go in their own layer: drei's Html otherwise re-parents every tag once the canvas
   // connects its events, remounting 40 React roots mid-render.
   const labelLayer = useRef<HTMLDivElement>(null);
-  const [fontsReady, setFontsReady] = useState(false);
   const [hoverSlice, setHoverSlice] = useState<number | null>(null);
   const [hoverCrowd, setHoverCrowd] = useState<StagePerson | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    // The wheel paints its names onto a canvas, which needs the rounded font actually loaded.
-    document.fonts
-      ?.load(`700 64px ${WHEEL_FONT}`)
-      .catch(() => undefined)
-      .finally(() => {
-        if (live) setFontsReady(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const hovered = hoverSlice != null ? entrants[hoverSlice] : undefined;
   return (
@@ -341,8 +324,7 @@ export default function LotteryStage(props: LotteryStageProps) {
             {...props}
             layout={layout}
             show={show}
-            fontsReady={fontsReady}
-            ticker={ticker}
+              ticker={ticker}
             labelLayer={labelLayer}
             onHoverSlice={setHoverSlice}
             onHoverCrowd={setHoverCrowd}

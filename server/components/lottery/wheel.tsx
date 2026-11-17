@@ -9,7 +9,8 @@ import { sliceColors } from "./look";
 import { starGeometry } from "./shapes";
 import type { Show, StageEntrant } from "./types";
 
-export const WHEEL_FONT = `Fredoka, "Arial Rounded MT Bold", ui-rounded, "SF Pro Rounded", system-ui, sans-serif`;
+/** Rounded-leaning system fonts only (no web font download); keep in step with --party-font in style.css. */
+export const WHEEL_FONT = `ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", system-ui, sans-serif`;
 
 const TEX = 2048;
 const INK = "#2b1d3a";
@@ -51,10 +52,17 @@ function paintFace(canvas: HTMLCanvasElement, entrants: StageEntrant[]) {
       ctx.arc(c, c, r, (k / 16) * TAU, ((k + 1) / 16) * TAU);
       ctx.fill();
     }
-    ctx.font = `700 150px ${WHEEL_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const name = fitText(ctx, entrants[0].displayName, r * 1.3);
+    // Shrink the type before cutting the name: system fallbacks run wider than a rounded face.
+    const room = r * 1.55;
+    let size = 150;
+    ctx.font = `700 ${size}px ${WHEEL_FONT}`;
+    while (size > 90 && ctx.measureText(entrants[0].displayName).width > room) {
+      size -= 6;
+      ctx.font = `700 ${size}px ${WHEEL_FONT}`;
+    }
+    const name = fitText(ctx, entrants[0].displayName, room);
     // The spin stops with the slice's middle (the bottom of this texture) under the pointer, so
     // the name is painted there upside down and arrives at the top the right way up.
     ctx.save();
@@ -135,14 +143,12 @@ export function Wheel({
   show,
   position,
   radius,
-  fontsReady,
   onHoverSlice,
 }: {
   entrants: StageEntrant[];
   show: RefObject<Show>;
   position: [number, number, number];
   radius: number;
-  fontsReady: boolean;
   onHoverSlice: (index: number | null) => void;
 }) {
   const spinner = useRef<THREE.Group>(null);
@@ -163,7 +169,7 @@ export function Wheel({
   useEffect(() => {
     paintFace(texture.image as HTMLCanvasElement, entrants);
     texture.needsUpdate = true;
-  }, [texture, entrants, fontsReady]);
+  }, [texture, entrants]);
 
   const mats = useMemo(
     () => ({
