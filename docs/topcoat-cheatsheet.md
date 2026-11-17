@@ -1,3 +1,5 @@
+> Historical: the server no longer uses Topcoat; it was ported to nextrs (see [MIGRATION.md](../MIGRATION.md)).
+
 # Topcoat 0.5 / Toasty 0.7 — build cheat-sheet
 
 _Distilled from the framework source (`.reference/topcoat`) by a research pass. Ground truth for building the server._

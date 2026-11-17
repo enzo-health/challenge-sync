@@ -3,17 +3,27 @@
 The contract both the extension and the server implement. JSON over HTTPS. All timestamps ISO-8601
 UTC. Follower-only/author-only metrics may be `null` when unavailable.
 
-## 1. Link (redeem invite, get sync token)
+## 1. Get a sync token
 
-The extension first reads the member's own LinkedIn identity, then redeems the invite. This binds
-the install to a real `User` at link time.
+The extension first reads the member's own LinkedIn identity, then gets a per-device sync token
+(a bearer token used for every `/api/sync`) in one of two ways. The full flow, including the
+website side and the error codes, is in [extension-first-auth.md](extension-first-auth.md).
+
+- **Join link.** The person opened the company join link (`/join/<code>`), which leaves the code in
+  a `join_code` cookie. The extension posts it with the identity to
+  `POST /api/auth/extension/join` (`{ "joinCode": "…", "member": { … } }`) and gets back
+  `syncToken`, `displayName`, `memberId` and `created`. The account is created on first use.
+- **Existing website session.** If the browser is already signed in to the site (for example an
+  admin who signed in with a password), the extension exchanges that session for a token with
+  `POST /api/auth/device/session`, then binds the LinkedIn identity to the account with
+  `POST /api/link`:
 
 ```
 POST /api/link
+Authorization: Bearer <syncToken>
 Content-Type: application/json
 
 {
-  "inviteCode": "AB12-CD34",
   "member": {
     "memberUrn": "urn:li:fsd_profile:ACoAAB...",   // stable per LinkedIn account
     "publicIdentifier": "drew-example",
@@ -24,18 +34,10 @@ Content-Type: application/json
 }
 ```
 
-Response `200`:
-
-```
-{
-  "syncToken": "st_9f2c...",     // bearer token, store in extension, used for all /api/sync
-  "orgName": "Acme Inc",
-  "displayName": "Drew Example"
-}
-```
-
-Errors: `404` unknown/expired/used invite code; `409` this member already linked in the org
-(returns the existing token so re-linking is idempotent).
+  Response `200`: `orgName`, `displayName`, `memberId`, `orgSlug`. Errors: `401` invalid or
+  missing sync token; `409` `already_linked` (this account is bound to a different LinkedIn
+  account) or `linkedin_taken` (that LinkedIn account belongs to another member); `400`
+  `identity_required`. Re-linking the same identity to the same account is idempotent.
 
 ## 2. Sync (upload a snapshot batch)
 
