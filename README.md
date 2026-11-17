@@ -1,108 +1,181 @@
 # Challenge Sync
 
-A better system for running company LinkedIn posting competitions. Instead of a central web scraper
-(flaky, and blind to author-only analytics), each participant installs a **Chrome extension** ([Chrome Web Store listing](https://chromewebstore.google.com/detail/challenge-sync-%E2%80%94-linkedin/lipnimkomknkipidfloeigpojfilgjfh)) that
-runs in their own browser and privately syncs *their own* LinkedIn stats — follower count, posts,
-and the author-only post analytics (impressions, reactions, comments, reposts, profile views) — to a
-central server. The server scores everyone by the rules the company configures and renders a live
-leaderboard.
+Challenge Sync runs company LinkedIn posting challenges. Each participant installs a Chrome
+extension ([Chrome Web Store listing](https://chromewebstore.google.com/detail/challenge-sync-%E2%80%94-linkedin/lipnimkomknkipidfloeigpojfilgjfh))
+that reads their own LinkedIn data from inside their signed-in browser: follower count, posts, and
+the author-only post analytics (impressions, reactions, comments, reposts and so on). It syncs that
+data to a central server, which scores everyone by each challenge's rules and shows the company
+overview, each person's results and the leaderboards.
 
-See **[MANIFEST.md](MANIFEST.md)** for the full vision, actors, and architecture.
+A central scraper can't see author-only analytics; an extension running in each person's own
+LinkedIn session can.
 
-## Status
+[MANIFEST.md](MANIFEST.md) describes the product: who uses it and what it should answer.
 
-| Piece | State |
-|---|---|
-| **Server** (`server/`) | ✅ Compiles & runs. Admin signup/login, invites, competition config, bearer-auth ingest API, follower-normalized scoring, live leaderboard. Verified end-to-end. |
-| **Extension** (`extension/`) | ✅ Complete MV3 extension: invite linking, periodic background sync, popup UI. LinkedIn/Voyager collectors are best-effort and **not yet verified against live LinkedIn** (see caveat). |
-| **Scoring** | ✅ Weekly buckets, top-N posts/week, follower normalization, profile points — verified numerically. |
+## How it works
 
-## Quick start
+```
+Participant's browser                         Server (server/: nextrs, on Vercel)
+                                                React pages (page.tsx), Rust API (route.rs)
+  Chrome extension (extension/)
+    reads own LinkedIn data in the    POST      /api/auth/extension/join  join code + LinkedIn
+    browser's LinkedIn session      ───────►                              identity -> account and
+    syncs about twice a day                                               device sync token
+                                                /api/sync                 snapshots, bearer token
+  Website (same browser)
+    /join/<code>, overview, my posts, ◄─────►   Toasty ORM: Postgres (Neon) in production,
+    leaderboards, admin pages                               a local Turso/SQLite file in dev
+                                                scoring derived at read time (src/scoring.rs)
 
-Install the two project-level command-line tools once:
-
-```sh
-cargo install just cargo-nextrs
+    /plaza  ── WebSocket ──►  Plaza room (plaza/: Cloudflare Worker + Durable Object)
+                              admits a page holding a 60-second pass signed by the server
 ```
 
-Then, from the repository root:
+- **Sign-in goes through the extension.** A person opens the company join link (`/join/<code>`),
+  installs the extension and is logged in to LinkedIn. The extension presents the join code with
+  their LinkedIn identity, gets an account and a device sync token, and signs the website in, with
+  no password. Accounts created with an email and password sign in at `/auth/password`.
+  Details: [docs/extension-first-auth.md](docs/extension-first-auth.md).
+- **Syncing.** The extension checks every 15 minutes and syncs when about 12 hours have passed
+  since its last automatic sync. Wire format: [docs/sync-protocol.md](docs/sync-protocol.md).
+- **Scoring** is computed from the stored snapshots at read time, never stored: points per post
+  (capped per week), active weeks and streaks, and engagement priced per reaction, comment, repost
+  and so on, optionally normalised by follower count.
 
-```sh
-just doctor             # verify local tools
-just dev                # local file DB + server reloads at http://localhost:3312
-just extension-dev      # extension/dist/unpacked, baked for that local server
-just check              # every check; live LinkedIn tests only if the extension changed
+## What the app does
+
+Members see the company overview (`/`), their own synced posts and results (`/me`) and challenge
+leaderboards; admins set up challenges and their scoring rules, manage users and export post
+reports. A few fun extras are built in to support the challenge, such as a weekly lottery wheel
+and the plaza, where members' avatars walk around together. Scripts and AI agents can read the
+data through a read-only reporting API with an API key ([docs/reporting-api.md](docs/reporting-api.md)).
+
+The plaza's real-time room runs as a separate app on Cloudflare: a Worker written in Rust
+(workers-rs, compiled to wasm) with one Durable Object, `Room`, bound as `ROOM`. Its only other
+configuration is plain variables (allowed origins and the pass public key). It has no storage
+bindings, keeps nothing between connections and never logs chat. The web server and the room
+never call each other: the server signs a 60-second pass, and the room checks it with the public
+key. See [plaza/README.md](plaza/README.md).
+
+## Repository layout
+
+```
+server/            the web app and API: Rust (Axum, nextrs, Toasty) with React pages
+  app/             file routes: page.tsx pages, route.rs API handlers, middleware.rs guards
+  components/      React components shared by pages
+  src/             domain code: models, scoring, auth, lottery, reports, plaza passes, seeds
+  scripts/         server e2e tests, the deploy script, timings.sh
+extension/         the Chrome extension (Manifest V3, plain JavaScript)
+plaza/             the plaza room: a Rust Cloudflare Worker with one Durable Object
+plaza-protocol/    pass format, WebSocket messages and room rules, shared by server and room
+scripts/           check.sh (all checks), signoff, browser and extension e2e tests
+docs/              sync protocol, auth, deploying, extension distribution, reporting API
+MANIFEST.md        product manifest
+MIGRATION.md       notes from porting the server from Topcoat to nextrs (historical)
+POST_PLANNER_MANIFEST.md   product spec for a post planner (not built)
+justfile           project commands (`just` lists them)
 ```
 
-Every debug server start idempotently creates one empty local account, without challenges or fake
-LinkedIn data. This works with `just dev`, `cargo dev`, or `cargo run`:
+The server is a [nextrs](https://github.com/drewhirschi/nextrs) app: directories under
+`server/app` are URL segments, and the build wires the router and generates a typed client
+(React Query hooks for the pages, a plain-JavaScript client for the extension) from the `route.rs`
+handlers. Read [server/AGENTS.md](server/AGENTS.md) before changing the server.
+
+## Running locally
+
+Tools: Rust (`cargo`), Node.js with `npm`, `python3`, `zip` and [`just`](https://github.com/casey/just).
+`just dev` runs `cargo dev`, which needs `cargo-nextrs` (`cargo install cargo-nextrs`) and rebuilds
+and restarts the server on change. `just doctor` checks for all of these.
+
+On a fresh clone, install the page dependencies and generate the typed client once:
+
+```sh
+cd server && npm ci && npm run client:generate && cd ..
+```
+
+Then:
+
+```sh
+just dev              # server on http://localhost:3312, database server/linkedin.db
+just extension-dev    # build extension/dist/unpacked for that local server
+```
+
+Without `cargo-nextrs`, the same server runs without the rebuild-on-change loop:
+
+```sh
+cd server && DATABASE_URL=turso:linkedin.db cargo run --bin linkedin-challenge-server
+```
+
+Debug builds create one local account on every start (idempotently), with a local challenge and
+no LinkedIn data. Sign in with it at `/auth/password`:
 
 ```text
 drew@local.test / localpassword
 ```
 
-The database is `server/linkedin.db`. To create the account without starting the server, run
-`just seed-local`.
+`just seed-local` creates it without starting the server.
 
-Load `extension/dist/unpacked/` from `chrome://extensions`. After an extension change, rerun
-`just extension-dev` and click **Reload** on the extension card.
+Load `extension/dist/unpacked/` from `chrome://extensions` (Developer mode, Load unpacked). After
+an extension change, rerun `just extension-dev` and click **Reload** on the extension card.
 
-Production extension packages require an explicit HTTPS server origin:
+Other local setups:
+
+- `just plaza-dev`: the web server with demo data (`server/plaza-demo.db`) plus the plaza room on
+  `ws://127.0.0.1:8787/room` (`wrangler dev`, no Cloudflare login). Sign in two browsers as two
+  demo people, `<first-name>@demo.test` / `demopassword` (for example `ada@demo.test` and
+  `ben@demo.test`), and open `/plaza` in both. It works without `cargo-nextrs` too.
+- `just seed-lottery-demo`: adds an invented crowd to the local database for the lottery page;
+  view it as `lottery-admin@local.test` / `localpassword`.
+
+## Checks
 
 ```sh
-just extension-release https://challenge.example.com
+just check     # runs scripts/check.sh
 ```
 
-The same build is available as the manually triggered **Build extension release** GitHub workflow.
-It retains the verified zip as an artifact but does not publish it automatically.
+The fast tier always runs: the build, typecheck, `cargo test`, syntax checks, unit tests, the
+extension's sync code against a local server, headless browser tests, the plaza tests and every
+server e2e, each server on its own port and temporary database.
 
-## How it fits together
+The live tier drives the real extension against a real signed-in LinkedIn account in a local
+Chromium profile (`scripts/test-extension-e2e.mjs` and `scripts/test-join-flow-e2e.mjs`, about 2.5
+minutes). It runs only when the extension or the sign-in handshake has changed since it last
+passed on that machine. `just dev-profile-login` signs that profile in to LinkedIn;
+`CHECK_LIVE=always` or `CHECK_LIVE=never` forces or skips the tier.
 
-```
-Chrome extension (each participant's browser)          Server (Topcoat / Rust)
-  reads own LinkedIn data via Voyager API      POST    /api/link   redeem invite → sync token
-  every ~6h, using the browser's own session  ───────► /api/sync   bearer-auth JSON ingest
-  never sees the password                                ├─ Toasty ORM → libsql (→ Turso later)
-                                                          ├─ scoring.rs (derived at read time)
-  Admin (browser)                                        └─ /orgs/{slug} live leaderboard
-    /admin  signup · competitions · invites
-```
+Pull requests merge on a `local-checks` commit status, which `just signoff` posts after running
+`just check` on the pushed commit. See [docs/local-check-signoff.md](docs/local-check-signoff.md).
 
-The full protocol is in **[docs/sync-protocol.md](docs/sync-protocol.md)**; the LinkedIn API
-research is in **[docs/linkedin-scraping.md](docs/linkedin-scraping.md)**; a distilled Topcoat/Toasty
-build reference is in **[docs/topcoat-cheatsheet.md](docs/topcoat-cheatsheet.md)**.
+## Deploying
 
-## Tech choices
+- **Server:** `just deploy` (or `just deploy-preview`) builds on your machine and uploads a
+  prebuilt deployment to Vercel; pushing to GitHub deploys nothing. See
+  [docs/deploying.md](docs/deploying.md).
+- **Plaza room:** `just plaza-deploy`. See
+  [the plaza section of docs/deploying.md](docs/deploying.md#the-plaza-room) and
+  [plaza/README.md](plaza/README.md).
+- **Extension:** `just extension-release https://<server origin>` builds a Web Store zip for one
+  HTTPS server origin; the **Build extension release** GitHub workflow does the same. See
+  [docs/distributing-the-extension.md](docs/distributing-the-extension.md).
 
-- **Server:** [Topcoat](https://github.com/tokio-rs/topcoat) 0.5 (Tokio's server-rendered Rust
-  framework) — chosen deliberately to trial it. Server-rendered `view!` templates, cookie sessions,
-  module routing, no JS build step.
-- **ORM/DB:** [Toasty](https://github.com/tokio-rs/toasty) 0.7 with its **libsql** (`turso`) driver.
-  Local `turso:linkedin.db` file now; moving to hosted Turso is a connection-string change.
-- **Extension:** Manifest V3, plain JS (no build step). Uses LinkedIn's internal Voyager JSON API
-  from the user's own logged-in session.
+## Privacy
 
-## Privacy stance (a correction to the original pitch)
+The extension does not collect LinkedIn credentials and doesn't need to: it runs in the user's
+browser, where LinkedIn's session cookies already live, so it reads the user's own identity and
+analytics without touching their password. LinkedIn's cookies never leave the browser. The
+extension sends our server only the user's own LinkedIn data, authenticated with its own
+per-device sync token. Each participant uploads only their own data, by consent (installing the
+extension and joining). Collection is read-only, own-data-only and infrequent (about twice a day).
+The plaza room stores nothing and never logs chat.
 
-The extension **does not collect LinkedIn credentials** and doesn't need to: it runs in the user's
-browser where LinkedIn's session cookies already live, so it reads the user's own identity and
-analytics without ever touching their password. Session cookies never leave the browser. The only
-secret sent to our server is a per-install sync token. Each participant uploads only their own data,
-by consent (installing + linking). Scrape cadence is low (a few times/day), read-only, own-data-only.
+## Further docs
 
-## Caveat: LinkedIn endpoints are unverified
-
-LinkedIn's Voyager API is undocumented and changes often. The collectors in
-`extension/linkedin.js` encode the best-known endpoints and degrade to `null` rather than breaking,
-but they have **not been run against a live LinkedIn session** in this build. The auth/analytics
-`queryId` rotates and is discovered at runtime. Expect to verify and adjust `linkedin.js` against
-the live site. Everything server-side (link, sync, scoring, leaderboard, admin) is verified working.
-
-## Repo layout
-
-```
-server/      Topcoat + Toasty app (the whole backend + web UI)
-extension/   Chrome MV3 extension
-docs/        sync protocol, LinkedIn research, Topcoat build cheat-sheet
-MANIFEST.md  vision, actors, architecture, data model, milestones
-```
+- [docs/sync-protocol.md](docs/sync-protocol.md): extension-to-server sync
+- [docs/extension-first-auth.md](docs/extension-first-auth.md): sign-in through the extension
+- [docs/linkedin-scraping.md](docs/linkedin-scraping.md): how the extension reads LinkedIn
+- [docs/reporting-api.md](docs/reporting-api.md): the read-only reporting API
+- [docs/deploying.md](docs/deploying.md): server and plaza deploys
+- [docs/distributing-the-extension.md](docs/distributing-the-extension.md): shipping the extension
+- [docs/local-check-signoff.md](docs/local-check-signoff.md): the local merge gate
+- [server/README.md](server/README.md), [server/AGENTS.md](server/AGENTS.md): working on the server
+- [extension/README.md](extension/README.md), [plaza/README.md](plaza/README.md)
