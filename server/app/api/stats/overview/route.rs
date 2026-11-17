@@ -38,12 +38,13 @@ pub struct StatsOverviewQuery {
 )]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     query: Result<Query<StatsOverviewQuery>, QueryRejection>,
 ) -> Result<Json<StatsOverview>, ApiError> {
-    let viewer = require_member(&mut db, &headers).await?;
+    let viewer = timing.span("session", require_member(&mut db, &headers)).await?;
     let Query(q) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let now = now_unix();
     let period = StatsPeriod::new(q.days, q.timezone.as_deref(), now).map_err(ApiError::bad_request)?;
-    Ok(Json(stats_overview(&mut db, &period, Some(viewer.id), now).await?))
+    Ok(Json(stats_overview(&mut db, &timing, &period, Some(viewer.id), now).await?))
 }

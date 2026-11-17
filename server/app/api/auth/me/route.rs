@@ -45,13 +45,14 @@ fn signed_out() -> MeResponse {
 #[nextrs::api(operation_id = "getMe")]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
 ) -> Result<Json<MeResponse>, ApiError> {
-    let Some(session) = current_session(&mut db, &headers).await else {
+    let Some(session) = timing.span("session", current_session(&mut db, &headers)).await else {
         return Ok(Json(signed_out()));
     };
     let member = session.member;
-    let last_sync_at = last_sync_at(&mut db, member.id).await?;
+    let last_sync_at = timing.span("db", last_sync_at(&mut db, member.id)).await?;
 
     Ok(Json(MeResponse {
         signed_in: true,

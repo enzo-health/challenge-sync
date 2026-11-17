@@ -136,7 +136,8 @@ skip() {
 syntax() {
   local f
   for f in extension/*.js; do node --check "$f" || return 1; done
-  bash -n extension/build.sh
+  bash -n extension/build.sh &&
+  bash -n server/scripts/timings.sh
 }
 
 # --- the live tier's helpers ---------------------------------------------------------------------
@@ -225,6 +226,7 @@ server_steps=(
   "snapshot-dedupe python3 server/scripts/test-snapshot-dedupe-e2e.py"
   "stats python3 server/scripts/test-stats-e2e.py"
   "sync-banner python3 server/scripts/test-sync-banner-e2e.py"
+  "server-timing python3 server/scripts/test-server-timing-e2e.py"
 )
 if [ $build_ok = 0 ]; then
   run cargo-test bash -c 'cd server && cargo test --quiet'

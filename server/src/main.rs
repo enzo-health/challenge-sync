@@ -16,6 +16,7 @@ use tower_http::cors::{Any, CorsLayer};
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
+    linkedin_challenge_server::init_tracing();
 
     let db = models::connect().await;
 

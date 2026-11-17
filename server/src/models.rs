@@ -20,7 +20,11 @@ pub async fn connect() -> Db {
 
     let mut db = Db::builder()
         .models(toasty::models!(crate::*))
-        .connect(&url)
+        .build(crate::db_timing::TimedDriver::new(
+            toasty::db::Connect::new(&url)
+                .await
+                .expect("failed to connect to the database"),
+        ))
         .await
         .expect("failed to connect to the database");
 

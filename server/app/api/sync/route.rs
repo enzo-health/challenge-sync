@@ -10,6 +10,7 @@ use linkedin_challenge_server::util::{now_unix, parse_iso8601};
 use linkedin_challenge_server::web::ApiError;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use toasty::Db;
 use utoipa::ToSchema;
 
@@ -133,27 +134,29 @@ pub struct SyncResponse {
 )]
 pub async fn post(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     Json(req): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, ApiError> {
-    let member = bearer_member(&mut db, &headers).await?;
+    // Server-Timing segments: session, db-profile, db-posts, db-delete, db-lookup (the three
+    // batched existence checks), db-write (the per-post upsert loop).
+    let member = timing.span("session", bearer_member(&mut db, &headers)).await?;
 
     let captured_at = now_unix(); // server clock is authoritative for windowing
 
     // One profile snapshot per sync.
-    toasty::create!(ProfileSnapshot {
+    let profile_snapshot = toasty::create!(ProfileSnapshot {
         member_id: member.id,
         captured_at,
         follower_count: req.profile.follower_count,
         profile_views: req.profile.profile_views,
-    })
-    .exec(&mut db)
-    .await?;
+    });
+    timing.span("db-profile", profile_snapshot.exec(&mut db)).await?;
 
     // This member's stored posts, read once: the reconciliation below and the upsert loop both
     // key off URN, and a lookup per post would be a round trip per post against a remote database.
-    let mut stored: HashMap<String, Post> = Post::filter(Post::fields().member_id().eq(member.id))
-        .exec(&mut db)
+    let mut stored: HashMap<String, Post> = timing
+        .span("db-posts", Post::filter(Post::fields().member_id().eq(member.id)).exec(&mut db))
         .await?
         .into_iter()
         .map(|post| (post.urn.clone(), post))
@@ -194,8 +197,9 @@ pub async fn post(
             }
         }
     }
-    delete_posts(&mut db, doomed).await?;
+    timing.span("db-delete", delete_posts(&mut db, doomed)).await?;
 
+    let lookup_start = Instant::now();
     // URNs in this batch that already belong to someone else. One batched check keeps the old
     // guarantee — a post is never reassigned between members — without a lookup per post.
     let batch_urns: Vec<String> = req.posts.iter().map(|post| post.urn.clone()).collect();
@@ -256,7 +260,10 @@ pub async fn post(
         }
     }
 
+    timing.mark("db-lookup", lookup_start.elapsed());
+
     // Upsert each post by URN, then append a metric snapshot unless nothing changed.
+    let write_start = Instant::now();
     let mut ingested = 0usize;
     for p in &req.posts {
         if foreign.contains(&p.urn) {
@@ -385,6 +392,7 @@ pub async fn post(
 
         ingested += 1;
     }
+    timing.mark("db-write", write_start.elapsed());
 
     Ok(Json(SyncResponse {
         ok: true,

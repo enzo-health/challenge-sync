@@ -71,10 +71,11 @@ pub struct PostReportQuery {
 )]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     query: Result<Query<PostReportQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
-    require_report_access(&mut db, &headers).await?;
+    timing.span("auth", require_report_access(&mut db, &headers)).await?;
 
     // Axum's own rejection is plain text; an agent is better served by the JSON error shape.
     let Query(q) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
@@ -97,7 +98,7 @@ pub async fn get(
         now_unix(),
     )
     .map_err(ApiError::bad_request)?;
-    let report = post_report(&mut db, &filter).await?;
+    let report = timing.span("db", post_report(&mut db, &filter)).await?;
 
     if !csv {
         return Ok(Json(report).into_response());

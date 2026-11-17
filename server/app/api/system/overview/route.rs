@@ -9,8 +9,9 @@ use toasty::Db;
 #[nextrs::api(operation_id = "getSystemOverview")]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
 ) -> Result<Json<SystemOverview>, ApiError> {
-    require_system_admin(&mut db, &headers).await?;
-    Ok(Json(system_overview(&mut db).await?))
+    timing.span("session", require_system_admin(&mut db, &headers)).await?;
+    Ok(Json(timing.span("db", system_overview(&mut db)).await?))
 }

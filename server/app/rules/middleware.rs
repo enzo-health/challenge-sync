@@ -14,7 +14,8 @@ pub async fn handle(req: http::Request<axum::body::Body>) -> MiddlewareResult {
     };
 
     let mut db = db;
-    if !current_member(&mut db, req.headers()).await.is_some_and(|member| can_use_challenges(&member)) {
+    let timing = nextrs::Timing::from_extensions(req.extensions());
+    if !timing.span("session", current_member(&mut db, req.headers())).await.is_some_and(|member| can_use_challenges(&member)) {
         return MiddlewareResult::response(Redirect::to("/").into_response());
     }
     MiddlewareResult::next(req)

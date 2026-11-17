@@ -20,9 +20,10 @@ pub struct LeaderboardQuery {
 #[nextrs::api(operation_id = "getLeaderboard")]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     Query(q): Query<LeaderboardQuery>,
 ) -> Result<Json<Leaderboard>, ApiError> {
-    let member = require_challenge_user(&mut db, &headers).await?;
-    Ok(Json(leaderboard(&mut db, &member, q.challenge_id).await?))
+    let member = timing.span("session", require_challenge_user(&mut db, &headers)).await?;
+    Ok(Json(timing.span("db", leaderboard(&mut db, &member, q.challenge_id)).await?))
 }

@@ -37,10 +37,11 @@ pub struct MemberReportQuery {
 )]
 pub async fn get(
     Extension(mut db): Extension<Db>,
+    timing: nextrs::Timing,
     headers: HeaderMap,
     query: Result<Query<MemberReportQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
-    require_report_access(&mut db, &headers).await?;
+    timing.span("auth", require_report_access(&mut db, &headers)).await?;
     let Query(q) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let csv = match q.format.as_deref().map(str::trim).unwrap_or("json") {
         "" | "json" => false,
@@ -48,7 +49,7 @@ pub async fn get(
         _ => return Err(ApiError::bad_request("format must be json or csv")),
     };
     let now = now_unix();
-    let report = member_report(&mut db, now).await?;
+    let report = timing.span("db", member_report(&mut db, now)).await?;
     if !csv {
         return Ok(Json(report).into_response());
     }
