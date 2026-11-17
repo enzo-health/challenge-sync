@@ -140,13 +140,13 @@ class StageBoundary extends Component<{ onError: (error: Error) => void; childre
   }
 }
 
-function WinnerBanner({ winner, total, overlay }: { winner: StageEntrant; total: number; overlay: boolean }) {
+function WinnerBanner({ winner, overlay }: { winner: StageEntrant; overlay: boolean }) {
   return (
     <div className={`lottery-banner${overlay ? " overlay" : ""}`}>
       <div className="lottery-banner-kicker">★ This week&rsquo;s winner ★</div>
       <div className="lottery-banner-name">{winner.displayName}</div>
       <div className="lottery-banner-meta">
-        {posts(winner.postCount)} this week · drawn from {total === 1 ? "1 entrant" : `${total} entrants`}, one entry each
+        {posts(winner.postCount)} this week
       </div>
     </div>
   );
@@ -258,7 +258,7 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
         <strong>The 3D stage can&rsquo;t run here:</strong> {reason}. The draw works the same without it;
         the result appears below.
       </p>
-      {winner && <WinnerBanner winner={winner} total={n} overlay={false} />}
+      {winner && <WinnerBanner winner={winner} overlay={false} />}
     </div>
   );
 
@@ -313,7 +313,7 @@ function LotteryShow({ week, stale }: { week: LotteryWeekEntrants; stale: boolea
               />
             </Suspense>
           </StageBoundary>
-          {winner && <WinnerBanner winner={winner} total={n} overlay />}
+          {winner && <WinnerBanner winner={winner} overlay />}
           {n > 0 && controls}
         </div>
       )}
