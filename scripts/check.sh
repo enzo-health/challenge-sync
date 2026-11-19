@@ -9,7 +9,10 @@
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
 # ~8s, no extension and no LinkedIn), that the pages' prefetch.rs seeds are what a browser renders
 # from, with no fetch for them (scripts/test-prefetch-browser.mjs, the same way, ~5s), the lottery
-# page's Spin/Reset controls (scripts/test-lottery-browser.mjs, the same way), the plaza (its protocol
+# page's Spin/Reset controls (scripts/test-lottery-browser.mjs, the same way), which browsers count
+# as phones (scripts/test-mobile-detection.mjs, plain node) and that a phone gets the "not available
+# on mobile" notice while a narrow desktop window gets the app (scripts/test-mobile-notice-browser.mjs,
+# the same headless way), the plaza (its protocol
 # crate's tests, the room against a local `wrangler dev` that scripts/test-plaza-room.mjs starts and
 # stops itself, and two browsers in the room together, scripts/test-plaza-browser.mjs), and every
 # server e2e. Each server e2e starts
@@ -227,6 +230,7 @@ run plaza-connection node scripts/test-plaza-connection.mjs
 run plaza-protocol cargo test --quiet --manifest-path plaza-protocol/Cargo.toml
 run syntax syntax
 run refresh-window node scripts/test-refresh-window.mjs
+run mobile-detection node scripts/test-mobile-detection.mjs
 run extension-worker node scripts/test-extension-worker.mjs
 run diff-check git diff --check
 
@@ -249,6 +253,7 @@ server_steps=(
   "prefetch python3 server/scripts/test-prefetch-e2e.py"
   "prefetch-browser node scripts/test-prefetch-browser.mjs"
   "lottery-browser node scripts/test-lottery-browser.mjs"
+  "mobile-browser node scripts/test-mobile-notice-browser.mjs"
   "avatar-browser node scripts/test-avatar-browser.mjs"
   "plaza python3 server/scripts/test-plaza-e2e.py"
 )
