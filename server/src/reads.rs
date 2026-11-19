@@ -119,16 +119,19 @@ pub async fn my_posts(
     timing.span("db", posts).await
 }
 
-// --- GET /api/system/api-keys ----------------------------------------------------------------
+// --- GET /api/system/api-keys and /api/me/api-keys -------------------------------------------
 
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyRow {
     pub id: i64,
     pub name: String,
-    /// Name of the admin who created it, when they still exist.
+    /// Name of whoever created (owns) it, when their account still exists.
     #[schema(required)]
     pub created_by_name: Option<String>,
+    /// True for a member's own key, made on their API keys page; false for a key an admin made on
+    /// the Reports page, which works only while its creator is an admin.
+    pub personal: bool,
     pub created_at: i64,
     /// Unix seconds of the last request made with it, or null if it has never been used.
     #[schema(required)]
@@ -141,9 +144,8 @@ pub struct ApiKeyList {
     pub keys: Vec<ApiKeyRow>,
 }
 
-/// `GET /api/system/api-keys` for a caller who passed `dto::system_admin_required`.
-pub async fn api_keys(db: &mut Db) -> ApiResult<ApiKeyList> {
-    let mut keys = ApiKey::all().exec(&mut *db).await?;
+/// Rows for these keys, newest first, each with its owner's name.
+async fn api_key_rows(db: &mut Db, mut keys: Vec<ApiKey>) -> ApiResult<Vec<ApiKeyRow>> {
     keys.sort_by(|a, b| b.id.cmp(&a.id));
     let mut creator_ids: Vec<i64> = keys.iter().map(|key| key.created_by).collect();
     creator_ids.sort_unstable();
@@ -158,17 +160,56 @@ pub async fn api_keys(db: &mut Db) -> ApiResult<ApiKeyList> {
             .map(|member| (member.id, member.display_name))
             .collect()
     };
-    Ok(ApiKeyList {
-        keys: keys
-            .into_iter()
-            .map(|key| ApiKeyRow {
-                id: key.id,
-                created_by_name: names.get(&key.created_by).cloned(),
-                name: key.name,
-                created_at: key.created_at,
-                last_used_at: key.last_used_at,
-            })
-            .collect(),
+    Ok(keys
+        .into_iter()
+        .map(|key| ApiKeyRow {
+            id: key.id,
+            created_by_name: names.get(&key.created_by).cloned(),
+            name: key.name,
+            personal: key.personal,
+            created_at: key.created_at,
+            last_used_at: key.last_used_at,
+        })
+        .collect())
+}
+
+/// `GET /api/system/api-keys` for a caller who passed `dto::system_admin_required`: every key,
+/// admins' and members' own.
+pub async fn api_keys(db: &mut Db) -> ApiResult<ApiKeyList> {
+    let keys = ApiKey::all().exec(&mut *db).await?;
+    Ok(ApiKeyList { keys: api_key_rows(db, keys).await? })
+}
+
+/// How many keys of their own one member may hold at once.
+pub const MAX_PERSONAL_KEYS: usize = 5;
+
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MyApiKeyList {
+    /// The member's own keys, newest first.
+    pub keys: Vec<ApiKeyRow>,
+    /// How many they may hold at once; creating another is refused at this many.
+    pub max_keys: usize,
+    /// Requests each key may make per minute (`auth::API_KEY_REQUESTS_PER_MINUTE`).
+    pub requests_per_minute: i64,
+}
+
+/// A member's own (personal) keys. Keys they made as an admin on the Reports page are not listed
+/// here: those are managed there.
+pub async fn personal_api_keys(db: &mut Db, member_id: i64) -> toasty::Result<Vec<ApiKey>> {
+    Ok(ApiKey::filter(ApiKey::fields().created_by().eq(member_id))
+        .exec(&mut *db)
+        .await?
+        .into_iter()
+        .filter(|key| key.personal)
+        .collect())
+}
+
+/// `GET /api/me/api-keys` for a member who passed `dto::member_required`.
+pub async fn my_api_keys(db: &mut Db, member: &Member) -> ApiResult<MyApiKeyList> {
+    let keys = personal_api_keys(db, member.id).await?;
+    Ok(MyApiKeyList { keys: api_key_rows(db, keys).await?, max_keys: MAX_PERSONAL_KEYS,
+        requests_per_minute: crate::auth::API_KEY_REQUESTS_PER_MINUTE,
     })
 }
 

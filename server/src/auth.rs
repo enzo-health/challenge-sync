@@ -160,6 +160,10 @@ pub async fn member_from_session_token(db: &mut Db, token: &str) -> Option<Membe
 /// away: its session (and any session it was driving as an impersonator) reads as signed out.
 /// Deleting also removes those session rows; this check covers anything that slipped past that.
 pub async fn session_from_token(db: &mut Db, token: &str) -> Option<SessionInfo> {
+    // A reporting API key is never a website session (see `api_key_from_bearer`).
+    if token.trim().starts_with(API_KEY_PREFIX) {
+        return None;
+    }
     let key = hash_bearer_token(token);
     let sess = AdminSession::filter_by_token_hash(&key)
         .first()
@@ -411,6 +415,10 @@ pub async fn bearer_member(db: &mut Db, headers: &HeaderMap) -> Result<Member, c
 
 async fn token_member(db: &mut Db, headers: &HeaderMap) -> Option<Member> {
     let raw = bearer_token(headers)?;
+    // A reporting API key is never a sync token (see `api_key_from_bearer`).
+    if raw.trim().starts_with(API_KEY_PREFIX) {
+        return None;
+    }
     let hash = hash_bearer_token(raw);
     if let Ok(Some(device)) = DeviceToken::filter_by_token_hash(&hash).first().exec(&mut *db).await {
         // Best effort: a failed bookkeeping write must not fail the sync itself.
@@ -439,44 +447,106 @@ pub fn has_bearer(headers: &HeaderMap) -> bool {
     bearer_token(headers).is_some()
 }
 
-/// The API key this request presents, or None when it is missing, unknown, or revoked.
+/// Requests one API key may make per minute (a fixed window: each clock minute, UTC). Enough for
+/// an agent paging through months of posts; low enough that a runaway loop cannot hammer the
+/// database. Applies to every key, personal or an admin's; an admin's website session (the
+/// Reports page) is not limited.
+pub const API_KEY_REQUESTS_PER_MINUTE: i64 = 120;
+
+/// Why a presented API key was not accepted.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ApiKeyRefusal {
+    /// Missing, not a `csk_` key, unknown, revoked, or its owner no longer allows it (see
+    /// [`key_still_valid`]).
+    Rejected,
+    /// The key is fine but has used up this minute's requests; try again in this many seconds.
+    RateLimited { retry_after: i64 },
+    /// The database could not be asked, so the key could be neither checked nor counted.
+    DatabaseError,
+}
+
+/// Whether a key is still good for its owner as they are now.
+///
+/// Every key needs an owner whose account exists and is not deleted. A member's own key
+/// (`personal`) needs nothing more: it is their access to the read-only reporting API, which every
+/// member has. An admin-made key carries its creator's admin access, so it stops working when they
+/// stop being an admin, exactly as before personal keys existed.
+pub fn key_still_valid(key: &ApiKey, owner: Option<&Member>) -> bool {
+    match owner {
+        Some(owner) if !owner.is_deleted() => key.personal || owner.is_system_admin,
+        _ => false,
+    }
+}
+
+/// The API key this request presents, once it has been checked and counted against its rate
+/// limit.
 ///
 /// Only `api_keys` is consulted, so a sync token is never accepted here; and `member_from_bearer`
-/// never looks at `api_keys`, so a key cannot sync. A key also stops working when the admin who
-/// created it is no longer an admin, or their account was deleted: it carries their access, not
-/// its own.
-pub async fn api_key_from_bearer(db: &mut Db, headers: &HeaderMap) -> Option<ApiKey> {
-    let raw = bearer_token(headers)?.trim();
+/// and the session lookups refuse anything with the `csk_` prefix outright, so a key cannot sync
+/// or stand in for a website session. Only the reporting API (`reports::require_report_access`)
+/// calls this, and those routes only read: that is what makes every key read-only.
+pub async fn api_key_from_bearer(db: &mut Db, headers: &HeaderMap) -> Result<ApiKey, ApiKeyRefusal> {
+    let raw = bearer_token(headers).ok_or(ApiKeyRefusal::Rejected)?.trim();
     if !raw.starts_with(API_KEY_PREFIX) {
-        return None;
+        return Err(ApiKeyRefusal::Rejected);
     }
     let hash = hash_bearer_token(raw);
+    let db_error = |error: toasty::Error| {
+        eprintln!("database error checking an API key: {error}");
+        ApiKeyRefusal::DatabaseError
+    };
     let key = ApiKey::filter_by_key_hash(&hash)
         .first()
         .exec(&mut *db)
         .await
-        .ok()??;
-    let creator = Member::filter_by_id(key.created_by)
+        .map_err(db_error)?
+        .ok_or(ApiKeyRefusal::Rejected)?;
+    let owner = Member::filter_by_id(key.created_by)
         .first()
         .exec(&mut *db)
         .await
-        .ok()??;
-    if !creator.is_system_admin || creator.is_deleted() {
-        return None;
+        .map_err(db_error)?;
+    if !key_still_valid(&key, owner.as_ref()) {
+        return Err(ApiKeyRefusal::Rejected);
     }
-    // Best effort: a failed bookkeeping write must not fail the read itself.
-    let _ = toasty::update!(ApiKey::filter_by_id(key.id) { last_used_at: Some(now_unix()) })
-        .exec(&mut *db)
-        .await;
-    Some(key)
+    let now = now_unix();
+    if record_api_key_use(db, key.id, now).await.map_err(db_error)? {
+        return Ok(key);
+    }
+    // Nothing was updated: the limit is reached, or the key was revoked a moment ago.
+    match ApiKey::filter_by_id(key.id).first().exec(&mut *db).await.map_err(db_error)? {
+        Some(_) => Err(ApiKeyRefusal::RateLimited { retry_after: 60 - now.rem_euclid(60) }),
+        None => Err(ApiKeyRefusal::Rejected),
+    }
+}
+
+/// Count one request against the key's rate limit and stamp `last_used_at`, in one statement.
+/// Returns false, changing nothing, when the key has already made
+/// [`API_KEY_REQUESTS_PER_MINUTE`] requests this minute.
+///
+/// The check and the increment are a single conditional UPDATE, which PostgreSQL and SQLite both
+/// apply atomically, so concurrent requests on separate function instances (Vercel shares no
+/// memory between them) cannot both take the last slot. Every value is an integer this server
+/// computed, so formatting them into the SQL is safe and avoids the drivers' differing placeholder
+/// syntax.
+pub async fn record_api_key_use(db: &mut Db, key_id: i64, now: i64) -> toasty::Result<bool> {
+    let window = now.div_euclid(60);
+    let limit = API_KEY_REQUESTS_PER_MINUTE;
+    let sql = format!(
+        "UPDATE api_keys SET last_used_at = {now}, rate_window = {window}, \
+         rate_count = CASE WHEN rate_window = {window} THEN rate_count + 1 ELSE 1 END \
+         WHERE id = {key_id} AND (rate_window <> {window} OR rate_count < {limit})"
+    );
+    Ok(toasty::sql::statement(sql).exec(&mut *db).await? > 0)
 }
 
 /// Make a new API key and store its hash. Returns the stored row and the key, which is never
-/// retrievable again.
+/// retrievable again. `personal` is a member's own key (see [`key_still_valid`]).
 pub async fn create_api_key(
     db: &mut Db,
     name: &str,
     created_by: i64,
+    personal: bool,
 ) -> toasty::Result<(ApiKey, String)> {
     let (secret, key_hash) = new_api_key();
     let key = toasty::create!(ApiKey {
@@ -485,6 +555,7 @@ pub async fn create_api_key(
         created_by,
         created_at: now_unix(),
         last_used_at: None,
+        personal,
     })
     .exec(&mut *db)
     .await?;

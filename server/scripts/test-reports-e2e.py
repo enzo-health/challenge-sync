@@ -12,6 +12,9 @@
   older reading fills in when the newest one missed it); and the per-person summary is right;
 * /api/v1/members lists every account with when it last synced (advancing on every sync, even with
   nothing new), whether a LinkedIn identity is bound, and a sync summary, with no emails;
+* sort (every number, engagement rate, newest, oldest) and limit order and cut the posts without
+  changing the counts of matches, and each post carries its engagement rate and its author's
+  follower count;
 * posts carry their full text, and the CSV export has the header, one row per post, and survives a
   comma, a quote and a newline in post text.
 """
@@ -269,6 +272,40 @@ with tempfile.TemporaryDirectory(prefix='reports-e2e-') as directory:
 
         result = report(anon, token=key, since='2025-03-09', until='2025-03-09')
         check('a one-day window covers that whole UTC day', urns(result) == ['r2'])
+
+        # --- sort and limit -----------------------------------------------------------------
+        # Every week post has 7 reactions and 2 comments, so engagement rate is 9 / impressions:
+        # s1 (1,200) > r2 (2,000) > s2 (4,000) > r1 (5,000) > r5 (8,000).
+        result = report(anon, token=key, sort='engagementRate', **week)
+        r1 = next(p for p in result['posts'] if p['postUrl'].endswith('r1/'))
+        check('sort=engagementRate orders by (reactions + comments) / impressions, highest first',
+              urns(result) == ['s1', 'r2', 's2', 'r1', 'r5'] and result['sortedBy'] == 'engagementRate'
+              and r1['engagementRate'] == round(9 / 5000, 4) and result['filters']['sort'] == 'engagementRate')
+        result = report(anon, token=key, sort='impressionsOutOfNetwork', **week)
+        check('sort=impressionsOutOfNetwork puts an unknown number last',
+              urns(result) == ['r1', 'r2', 's2', 's1', 'r5'])
+        check('sort=newest and sort=oldest order by publication time',
+              urns(report(anon, token=key, sort='newest', **week)) == ['r2', 's2', 's1', 'r5', 'r1']
+              and urns(report(anon, token=key, sort='oldest', **week)) == ['r1', 'r5', 's1', 's2', 'r2'])
+        result = report(anon, token=key, sort='impressions', limit=2, **week)
+        summary = {a['memberId']: (a['postsInPeriod'], a['matchingPosts']) for a in result['authors']}
+        check('limit keeps the top posts after sorting; the counts and summary still cover every match',
+              urns(result) == ['r5', 'r1'] and result['postCount'] == 2 and result['matchingPostCount'] == 5
+              and result['filters']['limit'] == 2 and summary == {rita_id: (3, 3), sam_id: (2, 2)})
+        result = report(anon, token=key, **week)
+        check('without sort or limit the order and counts are as before',
+              result['sortedBy'] == 'impressions' and result['filters']['sort'] is None
+              and result['filters']['limit'] is None and result['matchingPostCount'] == result['postCount'] == 5)
+        check('each post carries its author\'s follower count from the nearest profile reading',
+              r1['authorFollowers'] == 100 and r1['authorFollowersReadAt'] is not None)
+        for params in ({'sort': 'virality'}, {'sort': 'Impressions'}, {'limit': 0}, {'limit': 501},
+                       {'limit': 'ten'}):
+            assert 'error' in report(anon, token=key, status=400, **params, **week), params
+        check('an unknown sort or a limit outside 1 to 500 is a 400', True)
+        response = anon.raw('/api/v1/posts?' + urllib.parse.urlencode(
+            {**week, 'format': 'csv', 'sort': 'reactions', 'limit': 3}), token=key)
+        rows = list(csv.reader(io.StringIO(response.body.decode('utf-8').lstrip('\ufeff'), newline='')))[1:]
+        check('the CSV follows sort and limit', len(rows) == 3)
 
         # --- time zones and exact instants ------------------------------------------------
         draw = {'since': '2025-03-28', 'until': '2025-04-03'}

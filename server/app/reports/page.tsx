@@ -1,6 +1,7 @@
 // Admin post reports: everyone's posts from a period, filtered by impressions and text, who
-// posted, and a CSV export. The same report is served to an admin's AI agent at /api/v1/posts with an API key,
-// and the keys are managed at the bottom of this page. Reachable only with the admin flag.
+// posted, and a CSV export. The same report is served to AI agents at /api/v1/posts with an API
+// key. Every key, admins' and members' own (/me/api-keys), is listed and revocable at the bottom
+// of this page. Reachable only with the admin flag.
 import {
   getGetPostReportUrl,
   getListApiKeysQueryKey,
@@ -317,8 +318,14 @@ function ApiKeys() {
         <p className="muted" style={{ marginTop: 0 }}>
           Give a key to an AI agent or a script so it can fetch this report itself. A key can read
           everyone&rsquo;s post data, so share it only with something you trust, and revoke it when
-          it is no longer needed. Instructions for the agent are in{" "}
-          <span className="code">docs/reporting-api.md</span>.
+          it is no longer needed. Instructions for the agent are at{" "}
+          <a className="code" href="/api/v1/docs">{origin}/api/v1/docs</a>. A key made here works
+          only while you are an admin.
+        </p>
+        <p className="muted">
+          Members also make their own read-only keys on their <a href="/me/api-keys">API keys</a>{" "}
+          page. Every key, theirs and admins&rsquo;, is listed below, so this is the one place to
+          see and revoke access.
         </p>
 
         {created && (
@@ -365,6 +372,7 @@ function ApiKeys() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Owner</th>
                 <th>Created</th>
                 <th>Last used</th>
                 <th />
@@ -374,10 +382,13 @@ function ApiKeys() {
               {keys.map((key) => (
                 <tr key={key.id}>
                   <td>{key.name}</td>
-                  <td className="small muted">
-                    {fmtLocalDate(key.createdAt)}
-                    {key.createdByName ? ` by ${key.createdByName}` : ""}
+                  <td>
+                    {key.createdByName ?? "Unknown"}{" "}
+                    <span className={key.personal ? "badge muted" : "badge brand"}>
+                      {key.personal ? "personal" : "admin"}
+                    </span>
                   </td>
+                  <td className="small muted">{fmtLocalDate(key.createdAt)}</td>
                   <td className="small muted">{key.lastUsedAt ? fmtLocalDate(key.lastUsedAt) : "never"}</td>
                   <td className="num">
                     <button

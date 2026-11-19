@@ -195,6 +195,23 @@ pub async fn connect() -> Db {
         "CREATE UNIQUE INDEX IF NOT EXISTS index_api_keys_by_key_hash ON api_keys (key_hash)",
     )
     .await;
+    // Members' own read-only keys, and the per-key rate limit. Every existing key is an admin's
+    // (personal = FALSE) and keeps behaving as before.
+    add_column(
+        &mut db,
+        "ALTER TABLE api_keys ADD COLUMN personal BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    .await;
+    add_column(
+        &mut db,
+        "ALTER TABLE api_keys ADD COLUMN rate_window BIGINT NOT NULL DEFAULT 0",
+    )
+    .await;
+    add_column(
+        &mut db,
+        "ALTER TABLE api_keys ADD COLUMN rate_count BIGINT NOT NULL DEFAULT 0",
+    )
+    .await;
     add_column(
         &mut db,
         "ALTER TABLE challenge_memberships ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE",
@@ -691,8 +708,9 @@ pub struct JoinLink {
     pub created_at: i64,
 }
 
-/// A key an admin hands to a program (Jason's AI agent) so it can read the post report at
-/// `/api/v1/posts` without a website session. Only the SHA-256 of the key is stored; the key
+/// A key a program (someone's AI agent) uses to read the reporting API (`/api/v1/*`) without a
+/// website session. Any member can make their own (`personal`); admins also make them on the
+/// Reports page. Only the SHA-256 of the key is stored; the key
 /// itself is shown once, when it is created. Keys start with `csk_` so they cannot be mistaken
 /// for sync tokens (`st_`), and the two are checked against different tables, so neither works in
 /// the other's place.
@@ -701,13 +719,26 @@ pub struct ApiKey {
     #[key]
     #[auto]
     pub id: i64,
-    /// What the admin called it, e.g. "Jason's agent", so they know which one to revoke.
+    /// What its owner called it, e.g. "My writing agent", so they know which one to revoke.
     pub name: String,
     #[unique]
     pub key_hash: String,
-    /// Member id of the admin who created it. The key stops working if they stop being an admin.
+    /// Member id of whoever created it, its owner. Deleting their account deletes the key.
     pub created_by: i64,
     pub created_at: i64,
-    /// Updated on use, best effort. None until the key is first used.
+    /// Updated on every accepted request. None until the key is first used.
     pub last_used_at: Option<i64>,
+    /// A member's own key, made on their API keys page (`/me/api-keys`): it works while its owner's
+    /// account exists, whether or not they are an admin. False for the keys an admin makes on the
+    /// Reports page, which work only while their creator is still an admin. Both read exactly the
+    /// same thing: the read-only `/api/v1/*` routes (see `auth::api_key_from_bearer`).
+    #[default(false)]
+    pub personal: bool,
+    /// The rate limit's current window (unix minute, `now / 60`) and how many requests were
+    /// accepted in it. Written only by `auth::record_api_key_use`, in one conditional UPDATE, so
+    /// concurrent requests (separate function instances) cannot together pass the limit.
+    #[default(0)]
+    pub rate_window: i64,
+    #[default(0)]
+    pub rate_count: i64,
 }

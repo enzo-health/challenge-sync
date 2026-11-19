@@ -1,4 +1,4 @@
-//! `GET /api/v1/members` — every account and when it last synced, for an admin's AI agent.
+//! `GET /api/v1/members` — every account and when it last synced, for a member's AI agent.
 //!
 //! Answers "who is installed and syncing" (someone who posted but is not syncing needs the
 //! extension) and "has syncing stalled" (the newest sync across everyone). Authenticated exactly
@@ -33,6 +33,7 @@ pub struct MemberReportQuery {
         (status = 200, description = "Every account with its last sync (CSV when format=csv)", body = MemberReport),
         (status = 400, description = "A parameter is not valid", body = ApiError),
         (status = 401, description = "Missing or wrong API key, or not an admin", body = ApiError),
+        (status = 429, description = "The API key has made too many requests this minute", body = ApiError),
     ),
 )]
 pub async fn get(

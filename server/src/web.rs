@@ -19,6 +19,9 @@ pub struct ApiError {
     pub code: Option<String>,
     #[serde(skip)]
     pub status: StatusCode,
+    /// Seconds to send as `Retry-After`, on a 429.
+    #[serde(skip)]
+    pub retry_after: Option<i64>,
 }
 
 /// The `code` values an `ApiError` can carry. The extension (extension/errors.js) and the site
@@ -44,6 +47,10 @@ pub mod codes {
     pub const ADMIN_USE_PASSWORD: &str = "admin_use_password";
     /// A "View as" session, which must not become a device token for its target.
     pub const IMPERSONATION_SESSION: &str = "impersonation_session";
+    /// An API key made more requests than its per-minute limit allows (429, with `Retry-After`).
+    pub const RATE_LIMITED: &str = "rate_limited";
+    /// A member already holds as many API keys of their own as they may.
+    pub const API_KEY_LIMIT: &str = "api_key_limit";
 }
 
 impl ApiError {
@@ -52,6 +59,7 @@ impl ApiError {
             error: message.into(),
             code: None,
             status,
+            retry_after: None,
         }
     }
 
@@ -76,12 +84,24 @@ impl ApiError {
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::new(StatusCode::CONFLICT, message)
     }
+
+    /// A 429 that tells the caller how many seconds to wait.
+    pub fn too_many_requests(message: impl Into<String>, retry_after: i64) -> Self {
+        let mut error = Self::new(StatusCode::TOO_MANY_REQUESTS, message).with_code(codes::RATE_LIMITED);
+        error.retry_after = Some(retry_after.max(1));
+        error
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status;
-        (status, Json(self)).into_response()
+        let retry_after = self.retry_after;
+        let mut response = (status, Json(self)).into_response();
+        if let Some(seconds) = retry_after {
+            response.headers_mut().insert(http::header::RETRY_AFTER, http::HeaderValue::from(seconds));
+        }
+        response
     }
 }
 

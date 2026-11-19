@@ -1,8 +1,10 @@
-//! `GET /api/system/api-keys` — the reporting API keys, without the keys themselves.
-//! `POST /api/system/api-keys` — make a new one; the response is the only time the key is shown.
+//! `GET /api/system/api-keys` — every reporting API key, admins' and members' own, without the
+//! keys themselves, so an admin has one place to see and revoke all access.
+//! `POST /api/system/api-keys` — make a new admin key; the response is the only time it is shown.
 //!
-//! A key lets a program read everyone's post report at `/api/v1/posts`, so only admins manage
-//! them. See `docs/reporting-api.md`.
+//! An admin key works only while its creator is an admin; members make their own keys at
+//! `/api/me/api-keys`. Both read the same read-only `/api/v1/*` routes. See
+//! `docs/reporting-api.md`.
 
 use axum::{Extension, Json};
 use http::HeaderMap;
@@ -33,7 +35,7 @@ pub struct CreatedApiKey {
 #[nextrs::api(
     operation_id = "listApiKeys",
     responses(
-        (status = 200, description = "Every API key, newest first, without the keys", body = ApiKeyList),
+        (status = 200, description = "Every API key (admin and personal), newest first, without the keys", body = ApiKeyList),
         (status = 401, description = "Not an admin", body = ApiError),
     ),
 )]
@@ -63,7 +65,7 @@ pub async fn post(
     if !(1..=100).contains(&name.chars().count()) {
         return Err(ApiError::bad_request("name must be between 1 and 100 characters"));
     }
-    let (row, key) = create_api_key(&mut db, name, operator.id).await?;
+    let (row, key) = create_api_key(&mut db, name, operator.id, false).await?;
     Ok(Json(CreatedApiKey {
         id: row.id,
         name: row.name,

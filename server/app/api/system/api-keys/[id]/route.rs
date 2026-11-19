@@ -1,4 +1,5 @@
-//! `DELETE /api/system/api-keys/{id}` — revoke an API key. It stops working at once.
+//! `DELETE /api/system/api-keys/{id}` — revoke any API key, an admin's or a member's own. It stops
+//! working at once.
 
 use axum::extract::Path;
 use axum::{Extension, Json};

@@ -17,9 +17,13 @@ use toasty::Db;
 use utoipa::ToSchema;
 
 use crate::dto::{post_text_contains, profile_readings};
-use crate::models::{Member, Post, PostSnapshot};
+use crate::models::{Member, Post, PostSnapshot, ProfileSnapshot};
 use crate::scoring::Dataset;
 use crate::util::{fmt_date, fmt_iso8601, parse_date, parse_iso8601};
+
+/// The reporting API's documentation, `docs/reporting-api.md`, compiled into the server so
+/// `GET /api/v1/docs` serves exactly the file in the repository: the two cannot drift.
+pub const REPORTING_API_DOC: &str = include_str!("../../docs/reporting-api.md");
 
 const DAY: i64 = 86_400;
 /// Days in the default window, today included.
@@ -27,6 +31,8 @@ pub const DEFAULT_DAYS: i64 = 7;
 /// Longest window one request may ask for. Every snapshot of every post in the window is read to
 /// find the latest one, so an unbounded window would read most of `post_snapshots`.
 pub const MAX_DAYS: i64 = 366;
+/// Most posts one response may be limited to with `limit`.
+pub const MAX_LIMIT: i64 = 500;
 /// Widest real-world UTC offset is +14:00; anything beyond is a typo.
 const MAX_OFFSET: i64 = 14 * 3600;
 
@@ -41,6 +47,72 @@ pub struct ReportParams<'a> {
     pub member_id: Option<i64>,
     pub contains: Option<&'a str>,
     pub include_reposts: bool,
+    /// One of [`PostSort::NAMES`]; None for the default order.
+    pub sort: Option<&'a str>,
+    /// Return only this many posts, after sorting.
+    pub limit: Option<i64>,
+}
+
+/// How the report's posts are ordered. Every number sorts highest first, with posts whose number
+/// is unknown last; ties go to the newer post.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostSort {
+    Impressions,
+    ImpressionsOutOfNetwork,
+    Reactions,
+    Comments,
+    Reposts,
+    Sends,
+    Saves,
+    /// `(reactions + comments) / impressions`, see [`engagement_rate`].
+    EngagementRate,
+    Newest,
+    Oldest,
+}
+
+impl PostSort {
+    pub const ALL: [PostSort; 10] = [
+        PostSort::Impressions,
+        PostSort::ImpressionsOutOfNetwork,
+        PostSort::Reactions,
+        PostSort::Comments,
+        PostSort::Reposts,
+        PostSort::Sends,
+        PostSort::Saves,
+        PostSort::EngagementRate,
+        PostSort::Newest,
+        PostSort::Oldest,
+    ];
+
+    /// The name used in `sort=` and echoed as `sortedBy`.
+    pub fn name(self) -> &'static str {
+        match self {
+            PostSort::Impressions => "impressions",
+            PostSort::ImpressionsOutOfNetwork => "impressionsOutOfNetwork",
+            PostSort::Reactions => "reactions",
+            PostSort::Comments => "comments",
+            PostSort::Reposts => "reposts",
+            PostSort::Sends => "sends",
+            PostSort::Saves => "saves",
+            PostSort::EngagementRate => "engagementRate",
+            PostSort::Newest => "newest",
+            PostSort::Oldest => "oldest",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|sort| sort.name() == value)
+    }
+}
+
+/// A post's engagement rate: reactions plus comments (what the site calls engagement) per
+/// impression. None when any of the three is unknown or there are no impressions, so a post is
+/// never ranked on a number that was not read. A post with very few impressions can have a high
+/// rate by chance; pair `sort=engagementRate` with `minImpressions`.
+pub fn engagement_rate(impressions: Option<i64>, reactions: Option<i64>, comments: Option<i64>) -> Option<f64> {
+    let impressions = impressions.filter(|n| *n > 0)?;
+    let rate = (reactions? + comments?) as f64 / impressions as f64;
+    Some((rate * 10_000.0).round() / 10_000.0)
 }
 
 /// The resolved inputs of one report.
@@ -59,6 +131,12 @@ pub struct ReportFilter {
     pub contains: Option<String>,
     /// False (the default): original posts only. True: reshares too.
     pub include_reposts: bool,
+    /// The order of `posts`: as asked, or out-of-network impressions when that minimum is set,
+    /// otherwise impressions.
+    pub sort: PostSort,
+    /// Whether `sort` was asked for (echoed in `filters.sort`).
+    pub sort_requested: bool,
+    pub limit: Option<usize>,
 }
 
 /// A query value with surrounding blanks removed; None when nothing is left.
@@ -206,6 +284,24 @@ impl ReportFilter {
                 return Err(format!("{name} cannot be negative"));
             }
         }
+        let requested = match present(params.sort) {
+            Some(value) => Some(PostSort::parse(value).ok_or_else(|| {
+                let names: Vec<&str> = PostSort::ALL.iter().map(|sort| sort.name()).collect();
+                format!("sort must be one of {}, got {value:?}", names.join(", "))
+            })?),
+            None => None,
+        };
+        let sort = requested.unwrap_or(if params.min_out_of_network_impressions.is_some() {
+            PostSort::ImpressionsOutOfNetwork
+        } else {
+            PostSort::Impressions
+        });
+        let limit = match params.limit {
+            Some(limit) if !(1..=MAX_LIMIT).contains(&limit) => {
+                return Err(format!("limit must be between 1 and {MAX_LIMIT}, got {limit}"));
+            }
+            limit => limit.map(|limit| limit as usize),
+        };
         Ok(Self {
             start,
             end,
@@ -215,6 +311,9 @@ impl ReportFilter {
             member_id: params.member_id,
             contains: present(params.contains).map(str::to_lowercase),
             include_reposts: params.include_reposts,
+            sort,
+            sort_requested: requested.is_some(),
+            limit,
         })
     }
 
@@ -248,6 +347,12 @@ pub struct ReportFilters {
     #[schema(required)]
     pub contains: Option<String>,
     pub include_reposts: bool,
+    /// The `sort` asked for, or null for the default order (see `sortedBy` for the order used).
+    #[schema(required)]
+    pub sort: Option<String>,
+    /// The `limit` asked for, or null for every matching post.
+    #[schema(required)]
+    pub limit: Option<usize>,
 }
 
 /// One post in the report. Each number is the most recent value read for it; null means LinkedIn's
@@ -296,6 +401,19 @@ pub struct ReportPost {
     pub sends: Option<i64>,
     #[schema(required)]
     pub saves: Option<i64>,
+    /// `(reactions + comments) / impressions`, rounded to 4 decimals (0.0153 is 1.53%), or null
+    /// when any of those is unknown or impressions is 0.
+    #[schema(required)]
+    pub engagement_rate: Option<f64>,
+    /// The author's LinkedIn follower count from the profile reading taken nearest to when the
+    /// post was published (before or after), or null if their followers were never read. Lets an
+    /// agent compare posts from people with very different audiences.
+    #[schema(required)]
+    pub author_followers: Option<i64>,
+    /// When that follower reading was taken (`YYYY-MM-DDTHH:MM:SSZ`), so its distance from
+    /// `postedAt` can be judged; null with `authorFollowers`.
+    #[schema(required)]
+    pub author_followers_read_at: Option<String>,
     /// When the post was last read (`YYYY-MM-DDTHH:MM:SSZ`), or null if it never was. A number
     /// that reading missed falls back to the previous reading that had it.
     #[schema(required)]
@@ -327,10 +445,13 @@ pub struct PostReport {
     /// The UTC offset the period and `postedAtLocal` are in, e.g. `-07:00` (same as
     /// `filters.timezone`).
     pub timezone: String,
-    /// "impressionsOutOfNetwork" when that filter is set, otherwise "impressions"; highest first.
+    /// The order of `posts`: the `sort` asked for; without one, "impressionsOutOfNetwork" when
+    /// that minimum is set, otherwise "impressions". Numbers sort highest first.
     pub sorted_by: String,
     /// Number of entries in `posts`.
     pub post_count: usize,
+    /// How many posts passed every filter, before `limit` (equal to `postCount` without one).
+    pub matching_post_count: usize,
     pub posts: Vec<ReportPost>,
     /// Everyone who posted in the period, most matching posts first.
     pub authors: Vec<ReportAuthor>,
@@ -341,6 +462,7 @@ pub struct PostReport {
 /// largest table, so it is never read whole.
 pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<PostReport> {
     let data = Dataset::load_posted_between(db, filter.start, filter.end, filter.member_id).await?;
+    let followers = follower_readings(db, data.members.keys().copied().collect()).await?;
 
     let mut authors: HashMap<i64, ReportAuthor> = HashMap::new();
     let mut rows = Vec::new();
@@ -358,7 +480,7 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
             // analytics read is best effort, and a post that passed 3,000 out-of-network
             // impressions must not drop out of the report because one later read failed.
             let pick = |field: fn(&PostSnapshot) -> Option<i64>| data.latest_known(post.id, field);
-            let row = ReportPost {
+            let mut row = ReportPost {
                 post_id: post.id,
                 member_id: member.id,
                 author_name: member.display_name.clone(),
@@ -380,8 +502,16 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
                 reposts: pick(|s| s.reposts),
                 sends: pick(|s| s.sends),
                 saves: pick(|s| s.saves),
+                engagement_rate: None,
+                author_followers: None,
+                author_followers_read_at: None,
                 metrics_captured_at: latest.map(|s| fmt_iso8601(s.captured_at)),
             };
+            row.engagement_rate = engagement_rate(row.impressions, row.reactions, row.comments);
+            if let Some((read_at, count)) = nearest_reading(followers.get(&member.id), posted_at) {
+                row.author_followers = Some(count);
+                row.author_followers_read_at = Some(fmt_iso8601(read_at));
+            }
             let matches = passes(row.impressions, filter.min_impressions)
                 && passes(row.impressions_out_of_network, filter.min_out_of_network_impressions)
                 && filter
@@ -405,21 +535,11 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
         }
     }
 
-    let by_out_of_network = filter.min_out_of_network_impressions.is_some();
-    let sort_value = |row: &ReportPost| {
-        if by_out_of_network {
-            row.impressions_out_of_network
-        } else {
-            row.impressions
-        }
-    };
-    // Highest first; unknown numbers (None) sort last because None < Some in Rust's ordering.
-    rows.sort_by(|a, b| {
-        sort_value(b)
-            .cmp(&sort_value(a))
-            .then_with(|| b.posted_at_unix.cmp(&a.posted_at_unix))
-            .then_with(|| a.post_id.cmp(&b.post_id))
-    });
+    sort_posts(&mut rows, filter.sort);
+    let matching_post_count = rows.len();
+    if let Some(limit) = filter.limit {
+        rows.truncate(limit);
+    }
     let mut authors: Vec<ReportAuthor> = authors.into_values().collect();
     authors.sort_by(|a, b| {
         b.matching_posts
@@ -439,14 +559,77 @@ pub async fn post_report(db: &mut Db, filter: &ReportFilter) -> toasty::Result<P
             member_id: filter.member_id,
             contains: filter.contains.clone(),
             include_reposts: filter.include_reposts,
+            sort: filter.sort_requested.then(|| filter.sort.name().to_string()),
+            limit: filter.limit,
         },
         timezone: fmt_offset(filter.offset),
-        sorted_by: if by_out_of_network { "impressionsOutOfNetwork" } else { "impressions" }
-            .to_string(),
+        sorted_by: filter.sort.name().to_string(),
         post_count: rows.len(),
+        matching_post_count,
         posts: rows,
         authors,
     })
+}
+
+/// Order posts by `sort`: numbers highest first with unknown ones last, then the newer post, then
+/// the lower id so the order is stable.
+fn sort_posts(rows: &mut [ReportPost], sort: PostSort) {
+    use std::cmp::Ordering;
+    let count = |row: &ReportPost| match sort {
+        PostSort::Impressions => row.impressions,
+        PostSort::ImpressionsOutOfNetwork => row.impressions_out_of_network,
+        PostSort::Reactions => row.reactions,
+        PostSort::Comments => row.comments,
+        PostSort::Reposts => row.reposts,
+        PostSort::Sends => row.sends,
+        PostSort::Saves => row.saves,
+        PostSort::EngagementRate | PostSort::Newest | PostSort::Oldest => None,
+    };
+    let newer_first = |a: &ReportPost, b: &ReportPost| {
+        b.posted_at_unix.cmp(&a.posted_at_unix).then_with(|| a.post_id.cmp(&b.post_id))
+    };
+    rows.sort_by(|a, b| {
+        let primary = match sort {
+            PostSort::Newest => Ordering::Equal,
+            PostSort::Oldest => a.posted_at_unix.cmp(&b.posted_at_unix),
+            // Some beats None, and a higher rate comes first. Rates are finite (impressions > 0).
+            PostSort::EngagementRate => match (a.engagement_rate, b.engagement_rate) {
+                (Some(x), Some(y)) => y.total_cmp(&x),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
+            // None < Some in Rust's ordering, so comparing b with a puts unknown numbers last.
+            _ => count(b).cmp(&count(a)),
+        };
+        primary.then_with(|| newer_first(a, b))
+    });
+}
+
+/// Every follower count read for these members, as (captured_at, count), oldest first. Readings
+/// that missed the count are left out.
+async fn follower_readings(db: &mut Db, member_ids: Vec<i64>) -> toasty::Result<HashMap<i64, Vec<(i64, i64)>>> {
+    let mut readings: HashMap<i64, Vec<(i64, i64)>> = HashMap::new();
+    if member_ids.is_empty() {
+        return Ok(readings);
+    }
+    for snapshot in ProfileSnapshot::filter(ProfileSnapshot::fields().member_id().in_list(member_ids))
+        .exec(&mut *db)
+        .await?
+    {
+        if let Some(count) = snapshot.follower_count {
+            readings.entry(snapshot.member_id).or_default().push((snapshot.captured_at, count));
+        }
+    }
+    for list in readings.values_mut() {
+        list.sort_unstable();
+    }
+    Ok(readings)
+}
+
+/// The reading taken nearest to `at`, before or after; the earlier one on a tie.
+fn nearest_reading(readings: Option<&Vec<(i64, i64)>>, at: i64) -> Option<(i64, i64)> {
+    readings?.iter().copied().min_by_key(|(captured_at, _)| (captured_at - at).abs())
 }
 
 /// Whether a number meets a minimum. An unknown number never meets one: a post whose
@@ -601,13 +784,31 @@ pub fn members_csv(report: &MemberReport) -> String {
 /// Who may read the reporting API: a request presenting an API key is judged by the key alone,
 /// so a wrong key fails even from a browser that also holds a session. Without one, only an
 /// admin's website session will do.
+///
+/// This is the only place an API key is accepted (see `auth::api_key_from_bearer`), and every
+/// route that calls it only reads.
 pub async fn require_report_access(
     db: &mut Db,
     headers: &http::HeaderMap,
 ) -> crate::web::ApiResult<()> {
+    use crate::auth::{API_KEY_REQUESTS_PER_MINUTE, ApiKeyRefusal};
+    use crate::web::ApiError;
     if crate::auth::has_bearer(headers) {
-        if crate::auth::api_key_from_bearer(db, headers).await.is_none() {
-            return Err(crate::web::ApiError::unauthorized("invalid or revoked API key"));
+        match crate::auth::api_key_from_bearer(db, headers).await {
+            Ok(_) => {}
+            Err(ApiKeyRefusal::Rejected) => return Err(ApiError::unauthorized("invalid or revoked API key")),
+            Err(ApiKeyRefusal::RateLimited { retry_after }) => {
+                return Err(ApiError::too_many_requests(
+                    format!(
+                        "rate limit exceeded: this API key may make {API_KEY_REQUESTS_PER_MINUTE} \
+                         requests per minute; try again in {retry_after} seconds"
+                    ),
+                    retry_after,
+                ));
+            }
+            Err(ApiKeyRefusal::DatabaseError) => {
+                return Err(ApiError::new(http::StatusCode::INTERNAL_SERVER_ERROR, "database error"));
+            }
         }
     } else {
         report_session_access(crate::auth::current_member(db, headers).await.as_ref())?;
@@ -858,6 +1059,55 @@ mod tests {
         assert_eq!(csv_field("line one\nline two"), "\"line one\nline two\"");
         assert_eq!(csv_field("windows\r\nbreak"), "\"windows\r\nbreak\"");
         assert_eq!(csv_field(""), "");
+    }
+
+    #[test]
+    fn sort_and_limit_are_validated_and_the_default_order_is_unchanged() {
+        let resolve = |sort, limit, min_out_of_network_impressions| {
+            ReportFilter::new(ReportParams { sort, limit, min_out_of_network_impressions, ..Default::default() }, NOW)
+        };
+        assert_eq!(resolve(None, None, None).unwrap().sort, PostSort::Impressions);
+        assert_eq!(resolve(None, None, Some(3000)).unwrap().sort, PostSort::ImpressionsOutOfNetwork);
+        assert!(!resolve(None, None, None).unwrap().sort_requested);
+        let asked = resolve(Some("engagementRate"), Some(10), Some(3000)).unwrap();
+        assert_eq!((asked.sort, asked.sort_requested, asked.limit), (PostSort::EngagementRate, true, Some(10)));
+        assert_eq!(resolve(Some(" "), None, None).unwrap().sort, PostSort::Impressions);
+        for sort in PostSort::ALL {
+            assert_eq!(PostSort::parse(sort.name()), Some(sort));
+        }
+        assert!(resolve(Some("virality"), None, None).unwrap_err().contains("engagementRate"));
+        assert!(resolve(None, Some(0), None).is_err());
+        assert!(resolve(None, Some(MAX_LIMIT + 1), None).is_err());
+        assert!(resolve(None, Some(MAX_LIMIT), None).is_ok());
+    }
+
+    #[test]
+    fn engagement_rate_needs_every_number_and_some_impressions() {
+        assert_eq!(engagement_rate(Some(5000), Some(7), Some(2)), Some(0.0018));
+        assert_eq!(engagement_rate(Some(0), Some(7), Some(2)), None);
+        assert_eq!(engagement_rate(None, Some(7), Some(2)), None);
+        assert_eq!(engagement_rate(Some(100), None, Some(2)), None);
+        assert_eq!(engagement_rate(Some(100), Some(7), None), None);
+        assert_eq!(engagement_rate(Some(100), Some(0), Some(0)), Some(0.0));
+    }
+
+    #[test]
+    fn the_nearest_follower_reading_wins_either_side() {
+        let readings = vec![(100, 10), (200, 20), (400, 40)];
+        assert_eq!(nearest_reading(Some(&readings), 90), Some((100, 10)));
+        assert_eq!(nearest_reading(Some(&readings), 290), Some((200, 20)));
+        assert_eq!(nearest_reading(Some(&readings), 310), Some((400, 40)));
+        assert_eq!(nearest_reading(Some(&readings), 150), Some((100, 10)), "a tie goes to the earlier one");
+        assert_eq!(nearest_reading(None, 150), None);
+    }
+
+    #[test]
+    fn the_served_doc_states_the_limits_the_server_enforces() {
+        let rate = format!("**{} requests per minute**", crate::auth::API_KEY_REQUESTS_PER_MINUTE);
+        let cap = format!("You can hold up to {}\nat once", crate::reads::MAX_PERSONAL_KEYS);
+        assert!(REPORTING_API_DOC.contains(&rate), "docs/reporting-api.md must say {rate}");
+        assert!(REPORTING_API_DOC.contains(&cap), "docs/reporting-api.md must say {cap:?}");
+        assert!(REPORTING_API_DOC.contains(&format!("(1 to {MAX_LIMIT})")));
     }
 
     #[test]

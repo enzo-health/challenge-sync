@@ -47,8 +47,9 @@ Participant's browser                         Server (server/: nextrs, on Vercel
 Members see the company overview (`/`), their own synced posts and results (`/me`) and challenge
 leaderboards; admins set up challenges and their scoring rules, manage users and export post
 reports. A few fun extras are built in to support the challenge, such as a weekly lottery wheel
-and the plaza, where members' avatars walk around together. Scripts and AI agents can read the
-data through a read-only reporting API with an API key ([docs/reporting-api.md](docs/reporting-api.md)).
+and the plaza, where members' avatars walk around together. Any member can make their own
+read-only API key (`/me/api-keys`) so their AI assistant can read the posts and stats through the
+reporting API ([docs/reporting-api.md](docs/reporting-api.md), also served at `/api/v1/docs`).
 
 The plaza's real-time room runs as a separate app on Cloudflare: a Worker written in Rust
 (workers-rs, compiled to wasm) with one Durable Object, `Room`, bound as `ROOM`. Its only other
