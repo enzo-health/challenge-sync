@@ -12,6 +12,8 @@ import { SyncPausedBanner } from "../components/sync-paused";
 import { HostBlockedBanner, installHostBlockDetection, useHostBlockRetryPolicy } from "../components/host-block";
 import { AppSpeedInsights } from "../components/speed-insights";
 import { rememberTimezone } from "../components/timezone";
+import { isOpenOnPhones, isPhone } from "../components/mobile";
+import { MobileNotice } from "../components/mobile-notice";
 
 // Before any query or mutation runs: a request our host's firewall stopped becomes one
 // recognisable error app-wide (see components/host-block.tsx).
@@ -19,6 +21,10 @@ installHostBlockDetection();
 // For the server: the pages that ask for the viewer's own days are seeded under the offset this
 // cookie carries (components/timezone.ts).
 rememberTimezone();
+// Decided once, before the first render: the document is a bare mount point that React fills on
+// the client (no server HTML to hydrate), so a phone never paints the app first and a desktop
+// never paints the notice.
+const ON_PHONE = isPhone(navigator);
 
 function NavLink({ href, pathname }: { href: string; pathname: string }) {
   // Prefix-match nested routes; exact-match the landing page and the owner overview so they don't
@@ -196,6 +202,23 @@ function Sidebar() {
   );
 }
 
+function Shell({ children }: { children: ReactNode }) {
+  return (
+    <NuqsAdapter>
+      <div className="shell">
+        <Sidebar />
+        <main>
+          <HostBlockedBanner />
+          <SyncPausedBanner />
+          {children}
+        </main>
+      </div>
+    </NuqsAdapter>
+  );
+}
+
+// A phone gets components/mobile-notice.tsx in place of the shell and the page (neither is
+// mounted, so neither fetches), except on the few pages open to phones (components/mobile.ts).
 export default function Layout({ children }: { children: ReactNode }) {
   useHostBlockRetryPolicy();
   return (
@@ -210,16 +233,14 @@ export default function Layout({ children }: { children: ReactNode }) {
           every CSS change until the cache expired. */}
       <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       <link rel="icon" href="/favicon.ico" sizes="32x32" />
-      <NuqsAdapter>
-        <div className="shell">
-          <Sidebar />
-          <main>
-            <HostBlockedBanner />
-            <SyncPausedBanner />
-            {children}
-          </main>
-        </div>
-      </NuqsAdapter>
+      {ON_PHONE ? (
+        // Live pathname: a soft navigation away from a page open to phones lands on the notice.
+        <PathnameProvider>
+          {(pathname) => (isOpenOnPhones(pathname) ? <Shell>{children}</Shell> : <MobileNotice />)}
+        </PathnameProvider>
+      ) : (
+        <Shell>{children}</Shell>
+      )}
       <AppSpeedInsights />
     </>
   );

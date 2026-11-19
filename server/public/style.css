@@ -220,6 +220,12 @@ ul.plain li:last-child { border-bottom: none; }
   .auth-card { padding: 28px 22px 24px; border-radius: 14px; }
 }
 
+/* A phone's whole page, in place of the app (components/mobile-notice.tsx). */
+.mobile-notice { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; text-align: center; }
+.mobile-notice .auth-brand { margin: 0 auto 22px; }
+.mobile-notice h1 { font-size: 26px; }
+.mobile-notice .auth-intro { margin: 0; }
+
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1c1917; --panel: #292524; --fg: #f5f5f4; --muted: #a8a29e; --line: #44403c;
