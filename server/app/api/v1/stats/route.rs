@@ -1,4 +1,4 @@
-//! `GET /api/v1/stats` — the company stats overview, for an admin's AI agent.
+//! `GET /api/v1/stats` — the company stats overview, for a member's AI agent.
 //!
 //! The same numbers as the landing page (`/api/stats/overview`), authenticated like
 //! `/api/v1/posts`: an API key, or an admin's website session. There is no viewer here, so `you`
@@ -39,6 +39,7 @@ pub struct StatsReportQuery {
         (status = 200, description = "Company numbers for the period", body = StatsOverview),
         (status = 400, description = "A parameter is not valid", body = ApiError),
         (status = 401, description = "Missing or wrong API key, or not an admin", body = ApiError),
+        (status = 429, description = "The API key has made too many requests this minute", body = ApiError),
         (status = 404, description = "No member with that memberId", body = ApiError),
     ),
 )]

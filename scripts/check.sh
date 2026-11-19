@@ -243,6 +243,7 @@ server_steps=(
   "sync-devices python3 server/scripts/test-sync-devices-e2e.py"
   "extension-join python3 server/scripts/test-extension-join-e2e.py"
   "reports python3 server/scripts/test-reports-e2e.py"
+  "api-keys python3 server/scripts/test-api-keys-e2e.py"
   "delete-member python3 server/scripts/test-delete-member-e2e.py"
   "snapshot-dedupe python3 server/scripts/test-snapshot-dedupe-e2e.py"
   "stats python3 server/scripts/test-stats-e2e.py"

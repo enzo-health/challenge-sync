@@ -1,7 +1,7 @@
-//! `GET /api/v1/posts` — the post report, for an admin's AI agent and for the Reports page.
+//! `GET /api/v1/posts` — the post report, for a member's AI agent and for the Reports page.
 //!
-//! An agent authenticates with `Authorization: Bearer csk_...` (an API key an admin created on
-//! the Reports page). The page itself sends the admin's website session instead. This path is on
+//! An agent authenticates with `Authorization: Bearer csk_...` (a member's own key from their API
+//! keys page, or one an admin created on the Reports page). The page itself sends the admin's website session instead. This path is on
 //! the root middleware's public list, so this handler is the only thing checking who is asking.
 //! See `docs/reporting-api.md` for the contract.
 
@@ -54,6 +54,15 @@ pub struct PostReportQuery {
     /// Only this member's posts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_id: Option<i64>,
+    /// Order of `posts`: impressions, impressionsOutOfNetwork, reactions, comments, reposts,
+    /// sends, saves, engagementRate (highest first, unknown last), newest or oldest. Default:
+    /// impressionsOutOfNetwork when minOutOfNetworkImpressions is set, otherwise impressions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<String>,
+    /// Return only the first this many posts (1 to 500), after sorting: `sort=reactions&limit=10`
+    /// is the ten most-reacted posts. The `authors` summary still counts every matching post.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
     /// `json` (default) or `csv`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
@@ -66,6 +75,7 @@ pub struct PostReportQuery {
         (status = 200, description = "Matching posts and who posted (CSV when format=csv)", body = PostReport),
         (status = 400, description = "A parameter is not valid", body = ApiError),
         (status = 401, description = "Missing or wrong API key, or not an admin", body = ApiError),
+        (status = 429, description = "The API key has made too many requests this minute", body = ApiError),
     ),
 )]
 pub async fn get(
@@ -92,6 +102,8 @@ pub async fn get(
         member_id: q.member_id,
         contains: q.contains.as_deref(),
         include_reposts: q.include_reposts.unwrap_or(false),
+        sort: q.sort.as_deref(),
+        limit: q.limit,
     })?;
     let report = reads::report(&mut db, &timing, &filter).await?;
 

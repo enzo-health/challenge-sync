@@ -1,7 +1,7 @@
 // Root layout: the sidebar shell that stays mounted across soft navigations. Plain <a> links let
 // TanStack Router swap only the page leaf, so the React Query cache survives navigation.
 //
-// Everyone gets the company Overview (the landing page) and My posts. Challenges, for now, are
+// Everyone gets the company Overview (the landing page), My posts, and their own API keys. Challenges, for now, are
 // shown only to those `auth::can_use_challenges` lets in (system admins), along with System for
 // the product operator; the server guards those routes too, so hiding the links is not the lock.
 import { Component, type ReactNode } from "react";
@@ -111,6 +111,7 @@ function Sidebar() {
               <SideLink href="/" pathname={pathname}>Overview</SideLink>
               <SideLink href="/me" pathname={pathname}>My posts</SideLink>
               <SideLink href="/me/avatar" pathname={pathname}>My avatar</SideLink>
+              <SideLink href="/me/api-keys" pathname={pathname}>API keys</SideLink>
               <SideLink href="/plaza" pathname={pathname}>Plaza</SideLink>
               {me.isSystemAdmin && (
                 <>

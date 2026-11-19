@@ -2,7 +2,11 @@
 
 Instructions for an AI agent (or a script) that reads the company posting challenge's data.
 Hand this whole file to the agent along with an API key. There is no database access: this HTTP
-API is the interface.
+API is the interface, and it is read-only: nothing can be created, changed or deleted with it.
+
+The site serves this file, without a key, at `/api/v1/docs`. Every path below is relative to the
+address of the site this document came from; the examples call it `$BASE` (for example, if you
+fetched `https://challenge.example.com/api/v1/docs`, `BASE` is `https://challenge.example.com`).
 
 ## What it is for
 
@@ -16,7 +20,15 @@ reactions, comments and so on) to Challenge Sync through a browser extension. Th
   posted, impressions gained, a daily or weekly series, and the top posters and posts. The same
   numbers as the website's landing page.
 
-Typical weekly questions:
+Typical questions from a member's own assistant:
+
+- Which of my posts did best over the past few months, and what do they have in common? Draft a
+  new post in the same voice.
+- What do this month's top posts across the company (by reactions, comments or engagement rate)
+  have in common: topic, opening line, length, format, time of posting?
+- How did my week go compared with last week?
+
+Typical weekly questions from the organisers:
 
 - Which original posts from Friday through Thursday (Mountain time) mention Enzo, and which of
   them passed 3,000 out-of-network impressions?
@@ -24,19 +36,24 @@ Typical weekly questions:
 - Who posted but is not syncing (for example a new hire without the extension)? Has syncing
   stalled for everyone?
 
-The posts report is also on the website under **System → Post reports**, with an Export CSV
-button.
+For admins, the posts report is also on the website under **System → Post reports**, with an
+Export CSV button.
 
 ## Getting a key
 
-1. An admin signs in at https://social-challenge.enzo.health and opens **Post reports** in the
-   sidebar (admins only).
-2. Under **API keys**, type a name (for example "Jason's agent") and press **Create key**.
+Every member can make their own key:
+
+1. Sign in to the site and open **API keys** in the sidebar.
+2. Type a name (for example "Claude on my laptop") and press **Create key**.
 3. Copy the key straight away. It starts with `csk_` and is shown only once; only a hash is kept.
 
-The key can read everyone's post data, so treat it like a password. Revoke it on the same page when
-it is no longer needed, and it stops working at once. A key also stops working if the admin who
-created it is no longer an admin.
+The same page lists your keys, when each was last used, and revokes them. You can hold up to 5
+at once.
+
+A key can read everyone's post data, so treat it like a password. Revoke it when it is no longer
+needed and it stops working at once. It also stops working if its owner's account is deleted.
+Admins can see and revoke every key under **System → Post reports**, and can make keys there too;
+a key an admin makes there stops working if they stop being an admin.
 
 ## Authentication and errors (every endpoint)
 
@@ -45,16 +62,27 @@ Authorization: Bearer csk_...
 ```
 
 Send the key on every request. Sync tokens from the browser extension (`st_...`) are not API keys
-and are refused. Every error is JSON, `{"error": "message"}`:
+and are refused, and a key is refused everywhere except the three `GET /api/v1/...` endpoints
+below. Every error is JSON, `{"error": "message"}`:
 
 - `401`: missing, wrong or revoked key.
 - `400`: a parameter is not valid. The message says which.
 - `404`: only from `/api/v1/stats` with a `memberId` that does not exist.
+- `429`: the key has made too many requests this minute (below). The body also has
+  `"code": "rate_limited"`.
+
+### Rate limit
+
+Each key may make **120 requests per minute**, counted per clock minute (UTC) across all three
+endpoints. Request 121 in a minute is refused with `429` and a `Retry-After` header giving the
+seconds until the next minute starts; the error message says the same. Wait that long and carry
+on. One request returns a whole period (up to 366 days) at once, so a well-behaved agent rarely
+needs more than a few requests per question: prefer one wide request over many narrow ones.
 
 ## GET /api/v1/posts
 
 ```
-GET https://social-challenge.enzo.health/api/v1/posts
+GET $BASE/api/v1/posts
 ```
 
 ### Parameters
@@ -71,6 +99,8 @@ All are optional query parameters.
 | `contains` | none | Only posts whose text contains this, ignoring case. |
 | `includeReposts` | `false` | `true` adds reshares (someone resharing another person's post), flagged `isRepost: true`. By default only original posts are listed and counted. |
 | `memberId` | everyone | Only this person's posts (their `memberId` from a previous response). |
+| `sort` | see below | Order of `posts`: `impressions`, `impressionsOutOfNetwork`, `reactions`, `comments`, `reposts`, `sends`, `saves`, `engagementRate` (each highest first), `newest` or `oldest`. |
+| `limit` | every post | Return only the first this many posts (1 to 500) after sorting. |
 | `format` | `json` | `json`, or `csv` for a spreadsheet. |
 
 ### The period and time zones
@@ -116,6 +146,27 @@ with each end's own offset, for example
   read does not match. Encode spaces as `%20`, or use curl's `-G --data-urlencode`.
 - Several filters together must all hold.
 
+### Sorting and the top posts
+
+- Without `sort`, posts are sorted by out-of-network impressions when `minOutOfNetworkImpressions`
+  is set, otherwise by impressions. `sortedBy` in the response names the order used.
+- Every number sorts highest first, and **posts whose number is unknown sort last**. Ties go to
+  the newer post.
+- `limit` keeps the first posts after sorting, so `sort=reactions&limit=10` is the ten
+  most-reacted posts of the period. `postCount` is how many were returned and
+  `matchingPostCount` how many passed the filters; the `authors` summary always counts every
+  matching post, not only the returned ones.
+- `engagementRate` is `(reactions + comments) / impressions` (the site's "engagement" is reactions
+  plus comments), rounded to 4 decimals: `0.0153` is 1.53%. It is `null` when any of the three is
+  unknown or impressions is 0, and such posts sort last. A post seen by very few people can have a
+  high rate by chance, so pair `sort=engagementRate` with a minimum such as `minImpressions=500`.
+- To compare posts by people with very different audiences, use `authorFollowers` (below)
+  alongside impressions.
+
+Examples: the past 30 days' ten most-reacted posts is
+`?since=<30 days ago>&sort=reactions&limit=10`; one person's best posts of the past six months is
+`?since=<180 days ago>&memberId=14&sort=impressions&limit=20`.
+
 ### Which numbers
 
 Posts are re-read every few hours while they are under 45 days old. **Each number is the most
@@ -139,11 +190,14 @@ Values below are made up.
     "minOutOfNetworkImpressions": 3000,
     "memberId": null,
     "contains": "enzo",
-    "includeReposts": false
+    "includeReposts": false,
+    "sort": null,
+    "limit": null
   },
   "timezone": "-07:00",
   "sortedBy": "impressionsOutOfNetwork",
   "postCount": 1,
+  "matchingPostCount": 1,
   "posts": [
     {
       "postId": 812,
@@ -166,6 +220,9 @@ Values below are made up.
       "reposts": 6,
       "sends": 3,
       "saves": 11,
+      "engagementRate": 0.0181,
+      "authorFollowers": 2310,
+      "authorFollowersReadAt": "2026-11-12T18:00:40Z",
       "metricsCapturedAt": "2026-11-13T09:00:12Z"
     }
   ],
@@ -192,12 +249,18 @@ Values below are made up.
 }
 ```
 
-- `posts`: the posts that passed every filter. Sorted by out-of-network impressions, highest
-  first, when `minOutOfNetworkImpressions` is set; otherwise by impressions, highest first. Posts
-  with an unknown number sort last.
+- `posts`: the posts that passed every filter, in the order `sortedBy` names (see "Sorting and
+  the top posts"), cut to `limit` if one was given.
+- `filters.sort` and `filters.limit` echo what was asked for, `null` when not given.
 - `postedAt` is UTC; `postedAtLocal` is the same moment in `timezone`.
 - `text`: the post's full text as synced, or `null` if it could not be read.
 - Any number can be `null`, meaning LinkedIn's figure was never read. That is not the same as 0.
+- `engagementRate`: see "Sorting and the top posts".
+- `authorFollowers`: the author's LinkedIn follower count from the reading of their profile taken
+  nearest to when the post was published, before or after; `authorFollowersReadAt` is when that
+  reading was taken, so you can judge how close it is to `postedAt`. Both `null` if the author's
+  followers were never read. Profiles are read whenever the author's extension syncs, so for a
+  post published before the author started syncing the nearest reading can be some time later.
 - `authors`: **everyone who posted in the period** (original posts only, unless
   `includeReposts=true`), whether or not their posts passed the filters. `postsInPeriod` counts all
   their posts in the period; `matchingPosts` counts the ones in `posts`. Sorted by
@@ -211,7 +274,8 @@ Values below are made up.
 
 ### CSV response
 
-`format=csv` returns the same posts (not the `authors` list) as a download named after the first
+`format=csv` returns the same posts, in the same order and cut to the same `limit` (not the
+`authors` list, and not `engagementRate` or the follower fields), as a download named after the first
 and last day of the period in `timezone`, like `posts-2026-11-06-to-2026-11-12.csv`, with this
 header row:
 
@@ -230,7 +294,7 @@ formula.
 ## GET /api/v1/members
 
 ```
-GET https://social-challenge.enzo.health/api/v1/members
+GET $BASE/api/v1/members
 ```
 
 One parameter: `format` (`json` by default, or `csv`). Every account, sorted by name, with no
@@ -281,7 +345,7 @@ using the same CSV conventions as above.
 ## GET /api/v1/stats
 
 ```
-GET https://social-challenge.enzo.health/api/v1/stats?days=7&timezone=-07:00
+GET $BASE/api/v1/stats?days=7&timezone=-07:00
 ```
 
 The company overview the website shows on its landing page, for the past `days` days (today
@@ -386,7 +450,22 @@ Set the key once:
 
 ```sh
 export CHALLENGE_API_KEY='csk_...'
-BASE=https://social-challenge.enzo.health
+BASE=https://challenge.example.com   # the site this document came from
+```
+
+The ten posts with the most reactions over the past 30 days, with their text:
+
+```sh
+curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" \
+  "$BASE/api/v1/posts?since=$(date -u -d '29 days ago' +%F)&sort=reactions&limit=10" \
+  | jq -r '.posts[] | "\(.reactions) reactions, \(.authorName): \(.text)"'
+```
+
+The highest engagement rates among posts seen at least 500 times this month:
+
+```sh
+curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" \
+  "$BASE/api/v1/posts?since=$(date -u +%Y-%m-01)&sort=engagementRate&minImpressions=500&limit=10"
 ```
 
 Last Friday 00:00 through Thursday 23:59:59 Mountain time (winter), original posts that mention
@@ -463,4 +542,22 @@ curl -sS -H "Authorization: Bearer $CHALLENGE_API_KEY" "$BASE/api/v1/members" | 
   letters, and a post can mention a topic without being about it.
 - To find people who posted but are not syncing, compare `authors` from `/api/v1/posts` with
   `lastSyncedAt` from `/api/v1/members`.
-- Do not retry a `401` with the same key; ask an admin for a new one.
+- Do not retry a `401` with the same key: it was revoked or its owner's account was closed. Ask the
+  person who gave it to you to make a new one on their **API keys** page.
+- On a `429`, wait the `Retry-After` seconds and carry on; do not retry in a tight loop.
+
+## Helping someone write
+
+Members connect their own assistant mostly to learn from what works and to write better posts.
+
+- **Their own voice first.** To write like the member, read their own best posts
+  (`memberId=<theirs>&sort=impressions`, a few months back) and copy their tone, structure and
+  length, not someone else's.
+- **Learn from others, do not imitate them.** Colleagues' top posts are for patterns (topics, hooks,
+  length, format, timing), never for copying their text or writing as if you were them.
+- **Compare fairly.** Raw impressions favour people with big audiences; look at `engagementRate`
+  (with a minimum number of impressions) and `authorFollowers` before concluding that something
+  works.
+- **Say what the data can and cannot show.** A handful of posts is not a trend, and numbers keep
+  growing for weeks after a post goes up, so a post from yesterday is not comparable with one from
+  last month.
