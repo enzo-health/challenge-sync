@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The weekly lottery (`GET /api/admin/lottery`) on a disposable database, after cargo build:
 
-* a week is Monday 00:00 to Monday 00:00 in Denver: a post at Sunday 23:59:59 local is in the week,
-  one at Monday 00:00:00 local is in the next, including across the fall-back week (169 hours,
-  starting at -06:00 and ending at -07:00);
+* a week is Friday 00:00 to Friday 00:00 in Denver (Friday to Thursday): a post at Thursday 23:59:59
+  local is in the week, one at Friday 00:00:00 local is in the next, including across the fall-back
+  week (169 hours, starting at -06:00 and ending at -07:00);
 * entrants: one per person with an original post in the week, `postCount` counting originals only
   (a member with originals and a reshare), sorted by name ignoring case;
 * audience: the rest of the org: someone who only reshared, someone who never posted; not someone
@@ -11,7 +11,11 @@
 * a deleted member is in neither list; members of another (legacy) org are included like everyone
   else, since org_id is not a boundary: as an entrant when they posted, in the audience otherwise;
 * the default is the last complete week; the current week is allowed and flagged incomplete with
-  no next week; a week that is not a Monday, has not started, or is not a date gets a 400 saying so;
+  no next week; a week that is not a Friday, has not started, or is not a date gets a 400 saying so;
+* a custom range (`from` and `to`, both days included) has the same entrant rule over exactly those
+  days, is flagged `isCustomRange` with no previous or next week, is incomplete when it ends today,
+  and gives the same people as the week when it covers the same days; half a range, a range with a
+  week, a bad date, from after to, from in the future and more than 62 days each get their own 400;
 * anonymous callers, regular members, and a system admin viewing as a regular member get a 401;
 * exclusions (`PUT /api/admin/lottery/exclusions/{id}`): an excluded poster is not an entrant but
   is in the audience with `excluded: true`; someone excluded who did not post is ordinary audience;
@@ -22,8 +26,8 @@
 * no email, LinkedIn URN or profile URL anywhere in the response.
 
 The server's clock is pinned with DEV_CLOCK_OFFSET_FILE (debug builds only): accounts are created
-on 2026-10-20, then the clock moves to Monday 2026-11-16 10:00 in Denver, so "today" and "the last
-complete week" do not depend on when the test runs. Posts are dated through /api/sync's createdAt.
+on 2026-10-25, then the clock moves to Friday 2026-11-20 10:00 in Denver (the morning of a draw), so
+"today" and "the last complete week" do not depend on when the test runs. Posts are dated through /api/sync's createdAt.
 """
 import contextlib
 import datetime as dt
@@ -52,8 +56,8 @@ def utc(value):
     """`2026-11-16T07:00:00Z` as unix seconds."""
     return int(dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc).timestamp())
 
-ACCOUNTS_CREATED = utc('2026-10-20T18:00:00Z')
-NOW = utc('2026-11-16T17:00:00Z')  # Monday 2026-11-16, 10:00 MST
+ACCOUNTS_CREATED = utc('2026-10-25T18:00:00Z')  # sessions last 30 days: still valid at NOW
+NOW = utc('2026-11-20T17:00:00Z')  # Friday 2026-11-20, 10:00 MST
 
 with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
     db_path = Path(directory) / 'test.db'
@@ -118,8 +122,10 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
             assert code == status, (path, code, status, body[:300])
             return json.loads(body) if headers.get_content_type() == 'application/json' else body.decode()
 
-    def lottery(client, week=None, status=200):
-        query = '?' + urllib.parse.urlencode({'week': week}) if week is not None else ''
+    def lottery(client, week=None, status=200, **params):
+        if week is not None:
+            params['week'] = week
+        query = '?' + urllib.parse.urlencode(params) if params else ''
         return client.request('/api/admin/lottery' + query, status=status)
 
     set_clock(ACCOUNTS_CREATED)
@@ -140,8 +146,8 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         ada, _, ada_id = person('Ada Admin')       # becomes the users org's system admin
         ann, ann_token, ann_id = person('Ann Two')  # two originals and a reshare
         bob, bob_token, bob_id = person('bob reshare')  # only a reshare
-        cat, cat_token, cat_id = person('Cat Sunday')   # Sunday 23:59:59 local
-        dan, dan_token, dan_id = person('Dan Monday')   # Monday 00:00:00 local, the next week
+        cat, cat_token, cat_id = person('Cat Thursday') # Thursday 23:59:59 local
+        dan, dan_token, dan_id = person('Dan Friday')   # Friday 00:00:00 local, the next week
         eve, eve_token, eve_id = person('Eve Deleted')  # posts, then is deleted
         fay, _, fay_id = person('Fay Quiet')            # never posts
         hal, hal_token, hal_id = person('Hal Fall')     # first second of the fall-back week
@@ -164,25 +170,25 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         def sync(token, posts):
             anon.request('/api/sync', {'profile': {'followerCount': 100}, 'posts': posts}, token=token)
 
-        sync(ann_token, [post('urn:li:activity:ann1', '2026-11-10T15:00:00Z'),
-                         post('urn:li:activity:ann2', '2026-11-12T15:00:00Z'),
-                         post('urn:li:activity:ann3', '2026-11-13T15:00:00Z', is_repost=True)])
-        sync(bob_token, [post('urn:li:activity:bob1', '2026-11-11T15:00:00Z', is_repost=True)])
-        sync(cat_token, [post('urn:li:activity:cat1', '2026-11-16T06:59:59Z')])   # Sun 23:59:59 MST
-        sync(dan_token, [post('urn:li:activity:dan1', '2026-11-16T07:00:00Z')])   # Mon 00:00:00 MST
-        sync(eve_token, [post('urn:li:activity:eve1', '2026-11-10T15:00:00Z')])
-        sync(kim_token, [post('urn:li:activity:kim1', '2026-11-10T15:00:00Z')])
-        sync(hal_token, [post('urn:li:activity:hal1', '2026-10-26T06:00:00Z'),    # Mon 00:00:00 MDT
-                         post('urn:li:activity:hal0', '2026-10-26T05:59:59Z')])   # Sun 23:59:59 MDT, week before
-        sync(ivy_token, [post('urn:li:activity:ivy1', '2026-11-02T06:59:59Z'),    # Sun 23:59:59 MST
-                         post('urn:li:activity:ivy2', '2026-11-02T07:00:00Z')])   # Mon 00:00:00 MST, next week
+        sync(ann_token, [post('urn:li:activity:ann1', '2026-11-14T15:00:00Z'),    # Sat
+                         post('urn:li:activity:ann2', '2026-11-16T15:00:00Z'),    # Mon
+                         post('urn:li:activity:ann3', '2026-11-17T15:00:00Z', is_repost=True)])
+        sync(bob_token, [post('urn:li:activity:bob1', '2026-11-15T15:00:00Z', is_repost=True)])
+        sync(cat_token, [post('urn:li:activity:cat1', '2026-11-20T06:59:59Z')])   # Thu 23:59:59 MST
+        sync(dan_token, [post('urn:li:activity:dan1', '2026-11-20T07:00:00Z')])   # Fri 00:00:00 MST
+        sync(eve_token, [post('urn:li:activity:eve1', '2026-11-14T15:00:00Z')])
+        sync(kim_token, [post('urn:li:activity:kim1', '2026-11-14T15:00:00Z')])
+        sync(hal_token, [post('urn:li:activity:hal1', '2026-10-30T06:00:00Z'),    # Fri 00:00:00 MDT
+                         post('urn:li:activity:hal0', '2026-10-30T05:59:59Z')])   # Thu 23:59:59 MDT, week before
+        sync(ivy_token, [post('urn:li:activity:ivy1', '2026-11-06T06:59:59Z'),    # Thu 23:59:59 MST
+                         post('urn:li:activity:ivy2', '2026-11-06T07:00:00Z')])   # Fri 00:00:00 MST, next week
 
         admin = Client(f'ada-lottery-e2e@enzo.health', 'LotteryE2E!pass123')
         demo_admin = Client('sysadmin@demo.test')
 
         # Delete Eve through the system API.
         admin.request(f'/api/system/members/{eve_id}', method='DELETE')
-        # Gus signs up after the week of 2026-11-09 ended (the clock says 2026-11-16).
+        # Gus signs up after the week of 2026-11-13 ended (the clock says Friday 2026-11-20).
         gus, _, gus_id = person('Gus Late')
         ours.add(gus_id)
 
@@ -194,19 +200,20 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
 
         # --- the default week ---------------------------------------------------------------------
         week = lottery(admin)
-        check('the default is the last complete week (2026-11-09 to 2026-11-16, Denver)',
-              (week['weekStart'], week['weekEnd'], week['startsAt'], week['endsAt'], week['timezone']) ==
-              ('2026-11-09', '2026-11-16', '2026-11-09T00:00:00-07:00', '2026-11-16T00:00:00-07:00', 'America/Denver'))
-        check('the last complete week is complete, with the current week next', week['isComplete'] is True
-              and week['previousWeek'] == '2026-11-02' and week['nextWeek'] == '2026-11-16')
-        check('asking for 2026-11-09 gives the same answer', lottery(admin, '2026-11-09') == week)
+        check('on Friday morning the default is the last complete week, Fri 2026-11-13 to Thu 2026-11-19, Denver',
+              (week['firstDay'], week['lastDay'], week['startsAt'], week['endsAt'], week['timezone']) ==
+              ('2026-11-13', '2026-11-19', '2026-11-13T00:00:00-07:00', '2026-11-20T00:00:00-07:00', 'America/Denver'))
+        check('the last complete week is complete, not a custom range, with the current week next',
+              week['isComplete'] is True and week['isCustomRange'] is False
+              and week['previousWeek'] == '2026-11-06' and week['nextWeek'] == '2026-11-20')
+        check('asking for 2026-11-13 gives the same answer', lottery(admin, '2026-11-13') == week)
 
         entrants = {row['memberId']: row for row in week['entrants']}
         audience = set(ids(week['audience']))
         check('original posts count; a reshare is not counted (Ann: two originals and a reshare -> 2)',
               entrants[ann_id]['postCount'] == 2 and entrants[ann_id]['displayName'] == 'Ann Two')
-        check('a post at Sunday 23:59:59 Denver is in the week', cat_id in entrants and entrants[cat_id]['postCount'] == 1)
-        check('a post at Monday 00:00:00 Denver is not', dan_id not in entrants and dan_id in audience)
+        check('a post at Thursday 23:59:59 Denver is in the week', cat_id in entrants and entrants[cat_id]['postCount'] == 1)
+        check('a post at Friday 00:00:00 Denver is not', dan_id not in entrants and dan_id in audience)
         check('only a reshare: in the audience, not an entrant', bob_id not in entrants and bob_id in audience)
         check('never posted: in the audience', fay_id in audience and ada_id in audience)
         check('a deleted member is in neither list', eve_id not in entrants and eve_id not in audience)
@@ -225,8 +232,8 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         def leaks(value, path='$'):
             if isinstance(value, dict):
                 for key, inner in value.items():
-                    assert key in {'weekStart', 'weekEnd', 'startsAt', 'endsAt', 'timezone', 'isComplete', 'previousWeek',
-                                   'nextWeek', 'entrants', 'audience', 'memberId', 'displayName', 'postCount',
+                    assert key in {'firstDay', 'lastDay', 'startsAt', 'endsAt', 'timezone', 'isComplete', 'isCustomRange',
+                                   'previousWeek', 'nextWeek', 'entrants', 'audience', 'memberId', 'displayName', 'postCount',
                                    'excluded', 'avatar'}, (path, key)
                     leaks(inner, f'{path}.{key}')
             elif isinstance(value, list):
@@ -238,35 +245,90 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         check('no email, LinkedIn URN or profile URL anywhere in the response', True)
 
         # --- another org's admin ------------------------------------------------------------------------
-        check('an admin in another org sees the same lists', lottery(demo_admin, '2026-11-09') == week)
+        check('an admin in another org sees the same lists', lottery(demo_admin, '2026-11-13') == week)
 
         # --- the week in progress -----------------------------------------------------------------
-        current = lottery(admin, '2026-11-16')
+        current = lottery(admin, '2026-11-20')
         check('the current week is allowed, flagged incomplete, with no next week',
-              current['isComplete'] is False and current['nextWeek'] is None and current['previousWeek'] == '2026-11-09')
-        check('the post at Monday 00:00:00 is in the current week', ids(current['entrants']) == [dan_id])
+              current['isComplete'] is False and current['nextWeek'] is None and current['previousWeek'] == '2026-11-13'
+              and (current['firstDay'], current['lastDay']) == ('2026-11-20', '2026-11-26'))
+        check('the post at Friday 00:00:00 is in the current week', ids(current['entrants']) == [dan_id])
         check('the late account is in the current week\'s audience', gus_id in ids(current['audience']))
 
         # --- the fall-back week -------------------------------------------------------------------
-        fall = lottery(admin, '2026-10-26')
-        check('the fall-back week starts at -06:00 and ends at -07:00',
-              (fall['weekEnd'], fall['startsAt'], fall['endsAt']) ==
-              ('2026-11-02', '2026-10-26T00:00:00-06:00', '2026-11-02T00:00:00-07:00'))
+        fall = lottery(admin, '2026-10-30')
+        check('the fall-back week (Fri 30 Oct to Thu 5 Nov) starts at -06:00 and ends at -07:00',
+              (fall['lastDay'], fall['startsAt'], fall['endsAt']) ==
+              ('2026-11-05', '2026-10-30T00:00:00-06:00', '2026-11-06T00:00:00-07:00'))
         fall_entrants = {row['memberId']: row['postCount'] for row in fall['entrants']}
         check('the fall-back week holds its first and last second (169 hours) and nothing outside',
               fall_entrants == {hal_id: 1, ivy_id: 1})
-        check('Hal\'s Sunday 23:59:59 MDT post is in the week before', ids(lottery(admin, '2026-10-19')['entrants']) == [hal_id])
-        check('Ivy\'s Monday 00:00 MST post is in the week after', ivy_id in ids(lottery(admin, '2026-11-02')['entrants']))
+        check('Hal\'s Thursday 23:59:59 MDT post is in the week before', ids(lottery(admin, '2026-10-23')['entrants']) == [hal_id])
+        check('Ivy\'s Friday 00:00 MST post is in the week after', ivy_id in ids(lottery(admin, '2026-11-06')['entrants']))
+
+        # --- a custom range -----------------------------------------------------------------------
+        def people(period):
+            return ({row['memberId']: row['postCount'] for row in period['entrants'] if row['memberId'] in ours},
+                    set(ids(period['audience'])) & ours)
+        mon_thu = lottery(admin, **{'from': '2026-11-16', 'to': '2026-11-19'})
+        check('a range is the days from and to, both included, in Denver',
+              (mon_thu['firstDay'], mon_thu['lastDay'], mon_thu['startsAt'], mon_thu['endsAt']) ==
+              ('2026-11-16', '2026-11-19', '2026-11-16T00:00:00-07:00', '2026-11-20T00:00:00-07:00'))
+        check('a range is flagged as one, with no previous or next week, and complete once over',
+              mon_thu['isCustomRange'] is True and mon_thu['previousWeek'] is None and mon_thu['nextWeek'] is None
+              and mon_thu['isComplete'] is True)
+        check('a range counts only the originals in its days (Ann\'s Monday post, Cat\'s Thursday 23:59:59)',
+              people(mon_thu)[0] == {ann_id: 1, cat_id: 1})
+        check('someone who posted only before the range is in its audience', kim_id in people(mon_thu)[1])
+        leaks(mon_thu)
+        same = lottery(admin, **{'from': '2026-11-13', 'to': '2026-11-19'})
+        check('a range over the same days as a week gives the same people',
+              same['entrants'] == week['entrants'] and same['audience'] == week['audience']
+              and (same['startsAt'], same['endsAt']) == (week['startsAt'], week['endsAt']))
+        to_today = lottery(admin, **{'from': '2026-11-16', 'to': '2026-11-20'})
+        check('a range ending today is incomplete and includes today\'s posts',
+              to_today['isComplete'] is False and dan_id in people(to_today)[0])
+        check('a range may end after today', lottery(admin, **{'from': '2026-11-20', 'to': '2026-11-30'})['isComplete'] is False)
+        fall_range = lottery(admin, **{'from': '2026-10-30', 'to': '2026-11-05'})
+        check('a range across the fall-back change keeps its offsets and its people',
+              (fall_range['startsAt'], fall_range['endsAt']) == (fall['startsAt'], fall['endsAt'])
+              and fall_range['entrants'] == fall['entrants'])
+        def range_error(**params):
+            return lottery(admin, status=400, **params)['error']
+        check('a week and a range together are refused (400)',
+              range_error(week='2026-11-13', **{'from': '2026-11-16', 'to': '2026-11-19'}) ==
+              'give either week or from and to, not both: week picks a Friday-to-Thursday week, from and to a custom range')
+        check('from without to is refused (400), saying to is missing',
+              range_error(**{'from': '2026-11-16'}) == 'a range needs both from and to; to (the last day included) is missing')
+        check('to without from is refused (400), saying from is missing',
+              range_error(to='2026-11-19') == 'a range needs both from and to; from (the first day) is missing')
+        check('a from that is not a date is refused (400)',
+              range_error(**{'from': 'monday', 'to': '2026-11-19'}) == 'from must be a date like 2026-11-13, got "monday"')
+        check('a to that is not a date is refused (400)',
+              range_error(**{'from': '2026-11-16', 'to': '2026-11-31'}) == 'to must be a date like 2026-11-19, got "2026-11-31"')
+        check('from after to is refused (400)',
+              range_error(**{'from': '2026-11-19', 'to': '2026-11-16'}) ==
+              'from 2026-11-19 is after to 2026-11-16; to is the last day included, so it cannot be before from')
+        check('a from in the future is refused (400), naming today in Denver',
+              range_error(**{'from': '2026-11-21', 'to': '2026-11-22'}) ==
+              'from 2026-11-21 is in the future; today in America/Denver is 2026-11-20')
+        check('62 days is allowed', lottery(admin, **{'from': '2026-09-20', 'to': '2026-11-20'})['lastDay'] == '2026-11-20')
+        check('63 days is refused (400)',
+              range_error(**{'from': '2026-09-19', 'to': '2026-11-20'}) ==
+              'the range 2026-09-19 to 2026-11-20 is 63 days long; the longest allowed is 62 days')
 
         # --- bad weeks ----------------------------------------------------------------------------
-        error = lottery(admin, '2026-11-10', status=400)['error']
-        check('a Tuesday is refused (400), naming the Monday it belongs to',
-              error == 'week must be the Monday a week starts on, got 2026-11-10 (a Tuesday); that week starts on 2026-11-09')
-        error = lottery(admin, '2026-11-23', status=400)['error']
+        error = lottery(admin, '2026-11-16', status=400)['error']
+        check('a Monday is refused (400), naming the Friday its week starts on',
+              error == 'week must be the Friday a week starts on, got 2026-11-16 (a Monday); that week starts on 2026-11-13')
+        error = lottery(admin, '2026-11-19', status=400)['error']
+        check('so is a Thursday, the last day of that week',
+              error == 'week must be the Friday a week starts on, got 2026-11-19 (a Thursday); that week starts on 2026-11-13')
+        error = lottery(admin, '2026-11-27', status=400)['error']
         check('a week that has not started is refused (400)',
-              error == 'week 2026-11-23 has not started yet; the latest week is the one starting 2026-11-16')
+              error == 'week 2026-11-27 has not started yet; the latest week is the one starting 2026-11-20')
         error = lottery(admin, 'last-week', status=400)['error']
-        check('a week that is not a date is refused (400)', error == 'week must be a date like 2026-11-09, got "last-week"')
+        check('a week that is not a date is refused (400)', error == 'week must be a date like 2026-11-13, got "last-week"')
 
         # --- who may ask --------------------------------------------------------------------------
         code, _, body = anon.raw('/api/admin/lottery')
@@ -298,7 +360,7 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         check('the system member list reports who is excluded',
               flags[ann_id] is True and flags[ada_id] is True and flags[cat_id] is False and flags[eve_id] is False
               and all(isinstance(value, bool) for value in flags.values()))
-        excluded_week = lottery(admin, '2026-11-09')
+        excluded_week = lottery(admin, '2026-11-13')
         by_id = {row['memberId']: row for row in excluded_week['audience']}
         check('an excluded poster is not an entrant', ann_id not in ids(excluded_week['entrants']))
         check('an excluded poster is in the audience, reported as excluded',
@@ -318,15 +380,15 @@ with tempfile.TemporaryDirectory(prefix='lottery-e2e-') as directory:
         check('a regular member cannot exclude someone else', exclude(bob, cat_id, True, status=401) == refusal)
         check('a regular member cannot exclude themselves', exclude(cat, cat_id, True, status=401) == refusal)
         check('a system admin viewing as a regular member cannot either', exclude(viewer, cat_id, True, status=401) == refusal)
-        check('the refusals changed nothing', ann_id not in ids(lottery(admin, '2026-11-09')['entrants'])
-              and cat_id in ids(lottery(admin, '2026-11-09')['entrants']))
+        check('the refusals changed nothing', ann_id not in ids(lottery(admin, '2026-11-13')['entrants'])
+              and cat_id in ids(lottery(admin, '2026-11-13')['entrants']))
         check('a member who does not exist is a 404', exclude(admin, 999999, True, status=404)['error'] == 'no such member')
         check('a deleted member is refused (400), saying why',
               exclude(admin, eve_id, True, status=400)['error'] == 'this account has been deleted; restore it first')
 
         exclude(admin, ann_id, False)
         exclude(admin, ada_id, False)
-        check('re-including restores the poster and the week is as it was', lottery(admin, '2026-11-09') == week)
+        check('re-including restores the poster and the week is as it was', lottery(admin, '2026-11-13') == week)
         check('and the system member list shows nobody excluded again', not any(system_flags().values()))
 
         print(json.dumps({'result': 'PASS', 'checks': len(checks)}), flush=True)

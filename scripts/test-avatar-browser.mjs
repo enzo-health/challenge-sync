@@ -218,12 +218,12 @@ async function person(name, { post = false, avatar } = {}) {
   return { cookie, id: me.memberId, name };
 }
 
-// Everyone posts "now"; the lottery is asked for the week (Monday, Denver) that contains it.
+// Everyone posts "now"; the lottery is asked for the week (Friday to Thursday, Denver) that contains it.
 const postedAt = new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const denverDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(postedAt));
 const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short" }).format(new Date(postedAt));
-const back = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
-const monday = new Date(Date.parse(`${denverDay}T00:00:00Z`) - back * 86_400_000).toISOString().slice(0, 10);
+const back = ["Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu"].indexOf(weekday);
+const friday = new Date(Date.parse(`${denverDay}T00:00:00Z`) - back * 86_400_000).toISOString().slice(0, 10);
 
 // A seeded random so extra crowd/stage people look varied but the same every run.
 let seed = 7;
@@ -349,7 +349,7 @@ try {
 
   // --- 5. the lottery scene draws it ---------------------------------------------------------------
   await page.call("Network.setCookie", { name: "session", value: admin, url: base });
-  await hardLoad(`/admin/lottery?week=${monday}`);
+  await hardLoad(`/admin/lottery?week=${friday}`);
   await waitFor(`[...document.querySelectorAll(".lottery-tag")].some((t) => t.innerText.includes(${JSON.stringify(tester.name)}))`, "the tester's name tag on stage", 30000);
   const lookOf = (name) => evaluate(`JSON.parse([...document.querySelectorAll(".lottery-tag")].find((t) => t.innerText.includes(${JSON.stringify(name)})).dataset.look)`);
   const testerLook = await lookOf(tester.name);
@@ -364,13 +364,13 @@ try {
     oldLook.hair === "mohawk" && oldLook.facialHair === "none" && oldLook.skin === v1Avatar.skin, JSON.stringify(oldLook));
   const oldApi = await api("/api/me/avatar", { cookie: oldTimer.cookie });
   check("and the API returns it as version 2", oldApi.json.avatar?.v === 2 && oldApi.json.avatar?.facialHair === "none", JSON.stringify(oldApi.json.avatar));
-  const lottery = await api(`/api/admin/lottery?week=${monday}`, { cookie: admin });
+  const lottery = await api(`/api/admin/lottery?week=${friday}`, { cookie: admin });
   const crowdWithAvatars = lottery.json.audience.filter((p) => p.avatar).length;
   check("the lottery API sends saved avatars for the audience too", crowdWithAvatars >= CROWD, `${crowdWithAvatars} of ${lottery.json.audience.length}`);
   await sleep(2500);
   await shot("lottery-scene");
   await viewport(390, 844, true);
-  await hardLoad(`/admin/lottery?week=${monday}`);
+  await hardLoad(`/admin/lottery?week=${friday}`);
   await waitFor(`document.querySelectorAll(".lottery-tag").length > 0`, "the lottery on a phone", 30000);
   check("on a 390px phone: /admin/lottery lays out at 390 CSS px", (await evaluate("innerWidth")) === 390);
   await sleep(2500);

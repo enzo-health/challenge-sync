@@ -8,20 +8,20 @@
 //! password, no LinkedIn profile URL, and an `@local.test` email. Idempotent: members are found by
 //! email and posts by URN, so running it again changes nothing.
 //!
-//! What it gives, weeks starting on Mondays in Denver time:
-//!   2026-11-09  40 entrants; 15 others in the audience (5 of them only reshared); 2 deleted
+//! What it gives, weeks running Friday to Thursday in Denver time (named by their Friday):
+//!   2026-11-13  40 entrants; 15 others in the audience (5 of them only reshared); 2 deleted
 //!               members who posted and are in neither list
-//!   2026-11-02  about 25 entrants
-//!   2026-10-26  about 15 entrants (the week clocks fall back, 169 hours)
-//!   2026-10-19  exactly 1 entrant (others only reshared)
-//!   2026-10-12  no entrants (two reshares only)
-//!   2026-11-16  the week in progress: 3 entrants so far
+//!   2026-11-06  about 25 entrants
+//!   2026-10-30  about 15 entrants (the week clocks fall back, 169 hours)
+//!   2026-10-23  exactly 1 entrant (others only reshared)
+//!   2026-10-16  no entrants (two reshares only)
+//!   2026-11-20  the week after: 3 entrants so far
 //!
 //! It also creates a system admin to view the page as, since the local account is not one:
 //! `lottery-admin@local.test` / `localpassword`.
 
 use linkedin_challenge_server::auth::{hash_password, member_by_email};
-use linkedin_challenge_server::lottery::{LotteryWeek, resolve_week};
+use linkedin_challenge_server::lottery::{LotteryWeek, denver_offset, resolve_week};
 use linkedin_challenge_server::models::{self, Member, Org, Post, PostSnapshot};
 use linkedin_challenge_server::seed::{self, LOCAL_PASSWORD};
 use linkedin_challenge_server::util::{new_bearer_token, now_unix, parse_date};
@@ -51,15 +51,16 @@ fn name(i: usize) -> String {
     format!("{} {}", FIRST[i], LAST[(i * 7 + i / 19) % LAST.len()])
 }
 
-fn week(monday: &str) -> LotteryWeek {
-    // Any time after 2026-11-16 lets every week above resolve.
-    resolve_week(Some(monday), parse_date("2027-01-01").unwrap()).expect("a valid demo week")
+fn week(friday: &str) -> LotteryWeek {
+    // Any time after 2026-11-20 lets every week above resolve.
+    resolve_week(Some(friday), parse_date("2027-01-01").unwrap()).expect("a valid demo week")
 }
 
-/// An instant inside `week`: `day` 0 = Monday, at `hour` o'clock local. Exact for days 0 to 5;
-/// clocks only change at 02:00 on a Sunday (day 6).
+/// An instant inside `week`: `day` 0 = Friday … 6 = Thursday, at `hour` o'clock local (any hour
+/// but 02:00 to 03:00, when the clocks change on a Sunday, day 2).
 fn at(week: LotteryWeek, day: i64, hour: i64) -> i64 {
-    week.starts_at + day * DAY + hour * HOUR
+    let naive = week.starts_at + day * DAY + hour * HOUR;
+    naive + denver_offset(week.starts_at) - denver_offset(naive)
 }
 
 struct Demo {
@@ -173,7 +174,7 @@ async fn main() {
     let mut demo = Demo { db, org_id: org.id, created: 0 };
     run(&mut demo).await.expect("failed to seed lottery demo data");
     println!(
-        "lottery demo data ready ({} rows added): sign in as {ADMIN_EMAIL} / {LOCAL_PASSWORD} and open the lottery for the week of 2026-11-09",
+        "lottery demo data ready ({} rows added): sign in as {ADMIN_EMAIL} / {LOCAL_PASSWORD} and open the lottery for the week of 2026-11-13 (Fri 13 to Thu 19 November)",
         demo.created
     );
 }
@@ -205,62 +206,62 @@ async fn run(demo: &mut Demo) -> toasty::Result<()> {
         demo.member(i).await?;
     }
 
-    // 2026-11-09: members 0..40 post (some two or three times, some also reshare); 40..45 only
+    // 2026-11-13: members 0..40 post (some two or three times, some also reshare); 40..45 only
     // reshare; 45..55 do not post; 55 and 56 post and are deleted.
-    let main = week("2026-11-09");
+    let main = week("2026-11-13");
     for i in 0..40 {
         let day = (i % 7) as i64;
-        demo.post(i, "w1109a", at(main, day, 8 + (i as i64 * 3) % 11), false).await?;
+        demo.post(i, "f1113a", at(main, day, 8 + (i as i64 * 3) % 11), false).await?;
         if i % 4 == 0 {
-            demo.post(i, "w1109b", at(main, (day + 2) % 7, 12), false).await?;
+            demo.post(i, "f1113b", at(main, (day + 2) % 7, 12), false).await?;
         }
         if i % 9 == 0 {
-            demo.post(i, "w1109c", at(main, (day + 4) % 7, 16), false).await?;
+            demo.post(i, "f1113c", at(main, (day + 4) % 7, 16), false).await?;
         }
         if i % 5 == 0 {
-            demo.post(i, "w1109r", at(main, (day + 1) % 7, 10), true).await?;
+            demo.post(i, "f1113r", at(main, (day + 1) % 7, 10), true).await?;
         }
     }
-    // The edges of the week: the last second of Sunday counts, the first of Monday does not.
-    demo.post(6, "w1109-edge", main.ends_at - 1, false).await?;
+    // The edges of the week: the last second of Thursday counts, the first of Friday does not.
+    demo.post(6, "f1113-edge", main.ends_at - 1, false).await?;
     for i in 40..45 {
-        demo.post(i, "w1109r", at(main, (i % 7) as i64, 9), true).await?;
+        demo.post(i, "f1113r", at(main, (i % 7) as i64, 9), true).await?;
     }
     for i in 55..57 {
-        demo.post(i, "w1109a", at(main, 2, 11), false).await?;
+        demo.post(i, "f1113a", at(main, 2, 11), false).await?;
         demo.delete(i, main.ends_at - 2 * DAY).await?;
     }
 
-    // 2026-11-02: every other poster from above, plus some of the quiet ones.
-    let w1102 = week("2026-11-02");
+    // 2026-11-06: every other poster from above, plus some of the quiet ones.
+    let w1106 = week("2026-11-06");
     for i in (0..40).step_by(2).chain(45..50) {
-        demo.post(i, "w1102", at(w1102, (i % 5) as i64, 9 + (i as i64 % 8)), false).await?;
+        demo.post(i, "f1106", at(w1106, (i % 5) as i64, 9 + (i as i64 % 8)), false).await?;
     }
-    demo.post(47, "w1116-edge", main.ends_at, false).await?; // Monday 00:00, the week in progress
+    demo.post(47, "f1120-edge", main.ends_at, false).await?; // Friday 00:00, the week after
 
-    // 2026-10-26, the week the clocks fall back.
-    let w1026 = week("2026-10-26");
+    // 2026-10-30, the week the clocks fall back.
+    let w1030 = week("2026-10-30");
     for i in (1..45).step_by(3) {
-        demo.post(i, "w1026", at(w1026, (i % 6) as i64, 10), false).await?;
+        demo.post(i, "f1030", at(w1030, (i % 6) as i64, 10), false).await?;
     }
 
-    // 2026-10-19: one entrant; others only reshared.
-    let w1019 = week("2026-10-19");
-    demo.post(11, "w1019", at(w1019, 3, 9), false).await?;
+    // 2026-10-23: one entrant; others only reshared.
+    let w1023 = week("2026-10-23");
+    demo.post(11, "f1023", at(w1023, 3, 9), false).await?;
     for i in [2, 20, 33] {
-        demo.post(i, "w1019r", at(w1019, 1, 14), true).await?;
+        demo.post(i, "f1023r", at(w1023, 1, 14), true).await?;
     }
 
-    // 2026-10-12: no entrants, two reshares.
-    let w1012 = week("2026-10-12");
+    // 2026-10-16: no entrants, two reshares.
+    let w1016 = week("2026-10-16");
     for i in [5, 18] {
-        demo.post(i, "w1012r", at(w1012, 2, 13), true).await?;
+        demo.post(i, "f1016r", at(w1016, 2, 13), true).await?;
     }
 
-    // 2026-11-16, in progress: two more on Monday morning.
+    // 2026-11-20, the week after: two more on Friday morning.
     let current = main.next();
     for i in [1, 22] {
-        demo.post(i, "w1116", at(current, 0, 8), false).await?;
+        demo.post(i, "f1120", at(current, 0, 8), false).await?;
     }
     Ok(())
 }

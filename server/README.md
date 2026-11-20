@@ -122,7 +122,7 @@ src/                  domain layer — a lib crate, because .nextrs/dump-openapi
   reads.rs, seeds.rs  GET bodies shared by route.rs handlers and the pages' prefetch.rs seeds
   reports.rs          the admin post report and /api/v1/posts, /api/v1/members
   stats.rs            the company stats overview (landing page, /api/v1/stats)
-  lottery.rs          the weekly lottery entrants (/api/admin/lottery)
+  lottery.rs          the lottery entrants, Fri-Thu weeks or a custom range (/api/admin/lottery)
   avatar.rs           members' avatars (/api/me/avatar)
   plaza.rs            plaza roster and signed passes (/api/plaza/*)
   enroll.rs           automatic enrollment in running challenges
