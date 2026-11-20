@@ -13,6 +13,12 @@
 //   6. All users (/system): a user's menu has "Exclude from lottery", which marks the row with a
 //      badge and stores the flag (read back from /api/system/overview), then reads "Include in
 //      lottery" and undoes it; a deleted account's menu does not offer it.
+//   7. the period: with no parameters the page asks the API for none and names the week it got
+//      ("Fri 13 Nov – Thu 19 Nov"), with Previous/Next; a link with ?from=&to= asks the API for that
+//      range, shows its people, labels it "custom range" with its dates and "in progress", has no
+//      Previous/Next, and words the lists and the result "in this range"; "Back to the weekly
+//      draw" drops the range from the URL; "Custom range…" with two dates and Apply puts them in
+//      the URL and asks the API for them.
 //
 // Requires chromium on PATH and `cargo build` in server/. Software WebGL is asked for; without it
 // the page uses its text-only draw, which has the same controls (the output says which ran).
@@ -124,9 +130,9 @@ async function waitFor(expression, what, ms = 15000) {
 // A fixed week: five entrants, two who didn't post, and one poster excluded from the draw.
 const person = (memberId, displayName) => ({ memberId, displayName });
 const week = {
-  weekStart: "2026-11-09", weekEnd: "2026-11-16", startsAt: "2026-11-09T00:00:00-07:00",
-  endsAt: "2026-11-16T00:00:00-07:00", timezone: "America/Denver", isComplete: true,
-  previousWeek: "2026-11-02", nextWeek: "2026-11-16",
+  firstDay: "2026-11-13", lastDay: "2026-11-19", startsAt: "2026-11-13T00:00:00-07:00",
+  endsAt: "2026-11-20T00:00:00-07:00", timezone: "America/Denver", isComplete: true, isCustomRange: false,
+  previousWeek: "2026-11-06", nextWeek: "2026-11-20",
   entrants: ["Ada One", "Ben Two", "Cy Three", "Di Four", "Ed Five"].map((n, i) => ({ ...person(101 + i, n), postCount: 1 + i })),
   audience: [
     { ...person(201, "Olive Organiser"), excluded: true },
@@ -134,17 +140,30 @@ const week = {
     { ...person(203, "Quin Quiet"), excluded: false },
   ],
 };
+// A custom range, Mon 16 to Fri 20 Nov, still in progress, with its own people.
+const range = {
+  firstDay: "2026-11-16", lastDay: "2026-11-20", startsAt: "2026-11-16T00:00:00-07:00",
+  endsAt: "2026-11-21T00:00:00-07:00", timezone: "America/Denver", isComplete: false, isCustomRange: true,
+  previousWeek: null, nextWeek: null,
+  entrants: [{ ...person(301, "Rae Range"), postCount: 2 }, { ...person(302, "Sam Span"), postCount: 1 }],
+  audience: [{ ...person(303, "Tia Idle"), excluded: false }],
+};
+// Every query string the page sent to GET /api/admin/lottery, in order ("" for none).
+const asked = [];
 await page.call("Fetch.enable", { patterns: [{ urlPattern: "*/api/admin/lottery*" }] });
-// Only the week itself (GET /api/admin/lottery[?week=]); the exclusions route under it is real.
-page.on("Fetch.requestPaused", ({ requestId, request }) =>
-  new URL(request.url).pathname === "/api/admin/lottery"
-    ? page.call("Fetch.fulfillRequest", {
-        requestId,
-        responseCode: 200,
-        responseHeaders: [{ name: "content-type", value: "application/json" }],
-        body: Buffer.from(JSON.stringify(week)).toString("base64"),
-      })
-    : page.call("Fetch.continueRequest", { requestId }));
+// Only the period itself (GET /api/admin/lottery[?week= | ?from=&to=]); the exclusions route under
+// it is real. A request with from/to gets the range, anything else the week.
+page.on("Fetch.requestPaused", ({ requestId, request }) => {
+  const url = new URL(request.url);
+  if (url.pathname !== "/api/admin/lottery") return page.call("Fetch.continueRequest", { requestId });
+  asked.push(url.search);
+  return page.call("Fetch.fulfillRequest", {
+    requestId,
+    responseCode: 200,
+    responseHeaders: [{ name: "content-type", value: "application/json" }],
+    body: Buffer.from(JSON.stringify(url.searchParams.has("from") ? range : week)).toString("base64"),
+  });
+});
 // Count the draws: drawWinnerIndex asks crypto for one 32-bit word per attempt.
 await page.call("Page.addScriptToEvaluateOnNewDocument", {
   source: `window.__draws = 0;
@@ -175,6 +194,16 @@ try {
   // Give the lazy 3D stage a moment to mount (or fail over to the text-only draw).
   await waitFor(`!!document.querySelector(".lottery-canvas canvas") || !!document.querySelector(".lottery-fallback")`, "the stage or its fallback");
   const stage = (await evaluate(`!!document.querySelector(".lottery-canvas canvas")`)) ? "3D stage" : "text-only fallback";
+
+  // 7a. The default: no parameters asked for, the week's dates named.
+  const periodLabel = `document.querySelector(".lottery-week-label")?.innerText.replace(/\\s+/g, " ").trim() ?? ""`;
+  check("with no parameters the page asks the API for none", asked.length >= 1 && asked.every((q) => q === ""), JSON.stringify(asked));
+  const weekLabel = await evaluate(periodLabel);
+  check("the page names the Friday-to-Thursday week it shows", /^Fri 13 Nov – Thu 19 Nov( 2026)?, Mountain time$/.test(weekLabel), weekLabel);
+  const weekButtons = `[...document.querySelectorAll(".lottery-week button")].map((b) => b.innerText.trim())`;
+  const weekBar = await evaluate(weekButtons);
+  check("a week has Previous, Next and Custom range…",
+    weekBar.includes("← Previous") && weekBar.includes("Next →") && weekBar.includes("Custom range…"), weekBar.join(", "));
 
   // 5. Exclusions, as the page shows them.
   const notInDraw = await evaluate(`document.querySelector(".lottery-excluded")?.innerText ?? ""`);
@@ -219,6 +248,71 @@ try {
   check("a held Enter key on Spin draws once more, not once per repeat", (await evaluate("window.__draws")) === 2,
     `draws: ${await evaluate("window.__draws")}`);
   check("and again only Reset is offered", (await evaluate(`document.querySelectorAll(".lottery-go").length`)) === 0);
+
+  // 7b. A custom range from a link: the API is asked for it, and the page says plainly what it shows.
+  const hardLoad = async (path) => {
+    const done = new Promise((res) => page.on("Page.loadEventFired", res));
+    await page.call("Page.navigate", { url: `${base}${path}` });
+    await done;
+  };
+  asked.length = 0;
+  await hardLoad("/admin/lottery?from=2026-11-16&to=2026-11-20");
+  await waitFor(`!!document.querySelector(".lottery-range-badge")`, "the range label");
+  await waitFor(ready, "the Spin button in range mode");
+  const rangeAsked = new URLSearchParams(asked.at(-1) ?? "");
+  check("a range in the URL is what the page asks the API for",
+    asked.length >= 1 && asked.every((q) => q === asked[0]) && rangeAsked.get("from") === "2026-11-16" && rangeAsked.get("to") === "2026-11-20"
+      && !rangeAsked.has("week"), JSON.stringify(asked));
+  const rangeLabel = await evaluate(periodLabel);
+  check("the range is labelled as one, with its dates and in progress",
+    /^custom range Mon 16 Nov – Fri 20 Nov( 2026)?, Mountain time in progress$/.test(rangeLabel), rangeLabel);
+  const rangeDraw = await evaluate(`[...document.querySelectorAll(".lottery-list:not(.audience) li .who-name")].map((e) => e.innerText)`);
+  check("the range's people are in the draw", JSON.stringify(rangeDraw) === JSON.stringify(["Rae Range", "Sam Span"]), rangeDraw.join(", "));
+  const rangeQuiet = await evaluate(`document.querySelector(".lottery-list.audience h2")?.innerText ?? ""`);
+  check("the lists say \"in this range\"", rangeQuiet === "Didn’t post in this range (1)", rangeQuiet);
+  const rangeBar = await evaluate(weekButtons);
+  check("a range has no Previous or Next, and a way back to the weekly draw",
+    !rangeBar.some((t) => /Previous|Next/.test(t)) && rangeBar.includes("Back to the weekly draw") && rangeBar.includes("Change range"),
+    rangeBar.join(", "));
+  const unfinished = await evaluate(`[...document.querySelectorAll(".lottery-page p.small")].map((p) => p.innerText).find((t) => t.includes("isn’t over")) ?? ""`);
+  check("an unfinished range says when it ends", unfinished === "This range isn’t over yet, so more people may still qualify before Fri 20 Nov ends.", unfinished);
+  await evaluate(`document.querySelector(".lottery-go").click()`);
+  await waitFor(won, "the range's result");
+  const rangeResult = await evaluate(`document.querySelector('[role="status"]').innerText`);
+  check("the result is worded for the range", /^The winner is (Rae Range|Sam Span), with \d posts? in this range\.$/.test(rangeResult), rangeResult);
+  const meta = await evaluate(`document.querySelector(".lottery-banner-meta")?.innerText ?? ""`);
+  check("and so is the winner banner", /^\d posts? in this range$/.test(meta), meta);
+
+  // 7c. Back to the weekly draw: the range leaves the URL.
+  asked.length = 0;
+  await evaluate(`[...document.querySelectorAll(".lottery-week button")].find((b) => b.innerText.trim() === "Back to the weekly draw").click()`);
+  await waitFor(`!document.querySelector(".lottery-range-badge")`, "the week to come back");
+  const backUrl = new URL(await evaluate("location.href"));
+  check("Back to the weekly draw drops the range from the URL", backUrl.search === "" && asked.includes(""), `${backUrl.search} ${JSON.stringify(asked)}`);
+  check("and the week's dates are shown again", /^Fri 13 Nov – Thu 19 Nov/.test(await evaluate(periodLabel)));
+
+  // 7d. Custom range…: two dates and Apply.
+  await evaluate(`[...document.querySelectorAll(".lottery-week button")].find((b) => b.innerText.trim() === "Custom range…").click()`);
+  await waitFor(`!!document.querySelector(".lottery-range-form")`, "the range form");
+  const prefill = await evaluate(`[...document.querySelectorAll(".lottery-range-form input")].map((i) => i.value)`);
+  check("the range form starts from the week shown", JSON.stringify(prefill) === JSON.stringify(["2026-11-13", "2026-11-19"]), prefill.join(", "));
+  asked.length = 0;
+  await evaluate(`(() => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    for (const [name, value] of [["from", "2026-11-17"], ["to", "2026-11-19"]]) {
+      const input = document.querySelector('.lottery-range-form input[name="' + name + '"]');
+      set.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  })()`);
+  await evaluate(`document.querySelector(".lottery-range-apply").click()`);
+  await waitFor(`!!document.querySelector(".lottery-range-badge")`, "the applied range");
+  const applied = new URL(await evaluate("location.href")).searchParams;
+  // (A range not asked for before, so React Query has nothing cached for it; the mock answers with
+  // the same range body whatever the dates.)
+  check("Apply puts the range in the URL", applied.get("from") === "2026-11-17" && applied.get("to") === "2026-11-19" && !applied.has("week"),
+    applied.toString());
+  check("and asks the API for it", asked.some((q) => q === "?from=2026-11-17&to=2026-11-19"), JSON.stringify(asked));
 
   // 6. The All users page's row menu.
   const toSystem = new Promise((res) => page.on("Page.loadEventFired", res));

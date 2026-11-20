@@ -46,7 +46,7 @@ function detectWebGL(): boolean {
 
 const DAY = 24 * 60 * 60 * 1000;
 const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
-/** "Mon 16 Nov – Sun 22 Nov" from the roster's local dates (weekEnd is the Monday after). */
+/** "Fri 13 Nov – Thu 19 Nov" from the roster's local dates (weekEnd is the Friday after). */
 function weekRange(weekStart: string, weekEnd: string): string {
   return `${dayFmt.format(Date.parse(`${weekStart}T00:00:00Z`))} – ${dayFmt.format(Date.parse(`${weekEnd}T00:00:00Z`) - DAY)}`;
 }

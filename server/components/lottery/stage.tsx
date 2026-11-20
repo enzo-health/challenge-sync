@@ -497,7 +497,7 @@ export default function LotteryStage(props: LotteryStageProps) {
             </>
           ) : (
             <>
-              <strong>{hoverCrowd?.displayName}</strong> · didn&rsquo;t post this week
+              <strong>{hoverCrowd?.displayName}</strong> · {props.notPosted ?? "didn’t post this week"}
             </>
           )}
         </div>

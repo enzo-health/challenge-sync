@@ -12,7 +12,7 @@
 //!
 //! **The star.** `postedThisWeek` is the lottery's rule for the week in progress, decided by
 //! [`lottery::original_post_counts`]: at least one original post (not a reshare) whose LinkedIn
-//! creation time falls in the current Monday-to-Monday Denver week. The lottery's exclusion flag is
+//! creation time falls in the current Friday-to-Thursday Denver week. The lottery's exclusion flag is
 //! about the prize draw, not about posting, so an excluded member who posted still has the star.
 
 use http::StatusCode;
@@ -41,11 +41,11 @@ pub mod codes {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PlazaWeek {
-    /// The Monday the current lottery week starts on, local date, e.g. `2026-11-16`.
+    /// The Friday the current lottery week starts on, local date, e.g. `2026-11-13`.
     pub week_start: String,
-    /// The Monday after (exclusive), local date.
+    /// The Friday after (exclusive), local date; the week's last day is the Thursday before it.
     pub week_end: String,
-    /// The week's first instant with its offset, e.g. `2026-11-16T00:00:00-07:00`.
+    /// The week's first instant with its offset, e.g. `2026-11-13T00:00:00-07:00`.
     pub starts_at: String,
     /// The next week's first instant with its offset (exclusive).
     pub ends_at: String,
@@ -106,7 +106,7 @@ fn room_url_from(configured: Option<String>, debug: bool) -> Option<String> {
 pub async fn roster(db: &mut Db, me: &Member, now: i64) -> ApiResult<PlazaRoster> {
     let week = LotteryWeek::containing(now);
     let members = Member::all().exec(&mut *db).await?;
-    let counts = lottery::original_post_counts(db, week).await?;
+    let counts = lottery::original_post_counts(db, week.period()).await?;
     let mut members: Vec<PlazaMember> = members
         .into_iter()
         .filter(|member| !member.is_deleted())

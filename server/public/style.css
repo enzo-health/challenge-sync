@@ -803,6 +803,10 @@ main:has(.lottery-page) { max-width: 1240px; }
 .lottery-week { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
 .lottery-week-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); }
 .lottery-week-label strong { color: var(--fg); font-family: var(--party-font); font-weight: 600; font-size: 18px; }
+.lottery-range-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.lottery-range-form label span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.lottery-range-form input { width: auto; padding: 6px 9px; }
+.lottery-range-form .small { align-self: center; }
 
 .lottery-stage-wrap { position: relative; margin: 8px 0 22px; }
 .lottery-stage {

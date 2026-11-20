@@ -13,7 +13,7 @@ after cargo build. The live room (`../plaza/`) is not needed and not started.
 * the star is the lottery's rule for the current week: an original post this week stars; only a
   reshare, only a post last week, only a post with no creation time (0) do not; an excluded member
   who posted keeps the star; and the starred set equals the entrants plus the excluded posters that
-  `GET /api/admin/lottery?week=<this Monday>` reports for the same data;
+  `GET /api/admin/lottery?week=<this Friday>` reports for the same data;
 * pass: with PLAZA_PASS_PRIVATE_KEY set to the dev key (`../plaza/dev-keys.env`) the pass verifies
   against the dev public key, checked independently with node's built-in Ed25519; it names the
   caller and expires 60 s after the server's clock; a member id in the body or query is ignored; a
@@ -24,7 +24,8 @@ after cargo build. The live room (`../plaza/`) is not needed and not started.
   PLAZA_ROOM_URL when set and `ws://127.0.0.1:8787/room` (the debug default) when unset.
 
 The server's clock is pinned with DEV_CLOCK_OFFSET_FILE (debug builds only) to Thursday 2026-11-19
-10:00 in Denver, so the current lottery week is 2026-11-16 to 2026-11-23 whenever the test runs.
+10:00 in Denver, so the current lottery week is Friday 2026-11-13 to Thursday 2026-11-19 (ending at
+Friday 2026-11-20 00:00) whenever the test runs.
 """
 import base64
 import contextlib
@@ -107,8 +108,8 @@ process.stdout.write(Buffer.from(key.export({ format: 'jwk' }).x, 'base64url').t
 
 PRIVATE_KEY, PUBLIC_KEY = read_dev_keys()
 ACCOUNTS_CREATED = utc('2026-10-20T18:00:00Z')
-NOW = utc('2026-11-19T17:00:00Z')  # Thursday 2026-11-19, 10:00 MST; the week of Monday 2026-11-16
-THIS_MONDAY = '2026-11-16'
+NOW = utc('2026-11-19T17:00:00Z')  # Thursday 2026-11-19, 10:00 MST; the last day of the week of Friday 2026-11-13
+THIS_FRIDAY = '2026-11-13'
 AVATAR = {'v': OPTIONS['version'], **{key: values[0] for key, values in OPTIONS.items() if key != 'version'}}
 
 with tempfile.TemporaryDirectory(prefix='plaza-e2e-') as directory:
@@ -220,9 +221,9 @@ with tempfile.TemporaryDirectory(prefix='plaza-e2e-') as directory:
             anon.request('/api/sync', {'profile': {'followerCount': 100}, 'posts': posts}, token=token)
 
         sync(ann_token, [post('urn:li:activity:plann1', '2026-11-17T15:00:00Z'),
-                         post('urn:li:activity:plann2', '2026-11-12T15:00:00Z')])
+                         post('urn:li:activity:plann2', '2026-11-12T15:00:00Z')])  # and one last week
         sync(bob_token, [post('urn:li:activity:plbob1', '2026-11-17T15:00:00Z', is_repost=True)])
-        sync(cat_token, [post('urn:li:activity:plcat1', '2026-11-16T06:59:59Z')])  # Sun 23:59:59 MST, last week
+        sync(cat_token, [post('urn:li:activity:plcat1', '2026-11-13T06:59:59Z')])  # Thu 23:59:59 MST, last week
         sync(dee_token, [post('urn:li:activity:pldee1', None)])                     # stored with created_at 0
         sync(exa_token, [post('urn:li:activity:plexa1', '2026-11-18T15:00:00Z')])
         sync(eve_token, [post('urn:li:activity:pleve1', '2026-11-17T15:00:00Z')])
@@ -256,8 +257,8 @@ with tempfile.TemporaryDirectory(prefix='plaza-e2e-') as directory:
         check('the response has exactly me, roomUrl, week and members', set(mine) == {'me', 'roomUrl', 'week', 'members'})
         check('roomUrl is PLAZA_ROOM_URL when set', mine['roomUrl'] == ROOM_URL)
         check('week is the current lottery week',
-              mine['week'] == {'weekStart': THIS_MONDAY, 'weekEnd': '2026-11-23', 'startsAt': '2026-11-16T00:00:00-07:00',
-                               'endsAt': '2026-11-23T00:00:00-07:00', 'timezone': 'America/Denver'})
+              mine['week'] == {'weekStart': THIS_FRIDAY, 'weekEnd': '2026-11-20', 'startsAt': '2026-11-13T00:00:00-07:00',
+                               'endsAt': '2026-11-20T00:00:00-07:00', 'timezone': 'America/Denver'})
         members = {row['id']: row for row in mine['members']}
         check('every member has exactly id, name, avatar and postedThisWeek',
               all(set(row) == {'id', 'name', 'avatar', 'postedThisWeek'} for row in mine['members']))
@@ -273,14 +274,14 @@ with tempfile.TemporaryDirectory(prefix='plaza-e2e-') as directory:
         starred = {id for id, row in members.items() if row['postedThisWeek']}
         check('an original post this week stars', ann_id in starred)
         check('only a reshare this week: no star', bob_id not in starred)
-        check('only a post last week (Sunday 23:59:59 Denver): no star', cat_id not in starred)
+        check('only a post last week (Thursday 23:59:59 Denver): no star', cat_id not in starred)
         check('only a post with no creation time: no star', dee_id not in starred)
         check('never posted: no star', fay_id not in starred)
         check('excluded from the draw but posted: still starred', exa_id in starred)
         check('postedThisWeek is always a bool', all(isinstance(row['postedThisWeek'], bool) for row in members.values()))
 
         def lottery_posters():
-            week = sysadmin.request('/api/admin/lottery?' + urllib.parse.urlencode({'week': THIS_MONDAY}))
+            week = sysadmin.request('/api/admin/lottery?' + urllib.parse.urlencode({'week': THIS_FRIDAY}))
             return ({row['memberId'] for row in week['entrants']}
                     | {row['memberId'] for row in week['audience'] if row['excluded']}), week
         posters, week = lottery_posters()

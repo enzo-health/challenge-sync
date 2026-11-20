@@ -50,7 +50,7 @@ def utc(value):
     return int(dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc).timestamp())
 
 ACCOUNTS_CREATED = utc('2026-10-20T18:00:00Z')
-NOW = utc('2026-11-16T17:00:00Z')  # Monday 2026-11-16, 10:00 MST; last complete week starts 2026-11-09
+NOW = utc('2026-11-16T17:00:00Z')  # Monday 2026-11-16, 10:00 MST; the Fri-Thu week of 2026-11-06 is complete
 
 FIELDS = [key for key in OPTIONS if key != 'version']
 # A v2 avatar using a hair style and facial hair that v1 did not have.
@@ -256,7 +256,7 @@ with tempfile.TemporaryDirectory(prefix='avatar-e2e-') as directory:
             'createdAt': '2026-11-10T15:00:00Z', 'textPreview': 'avatar e2e', 'isRepost': False,
             'metrics': {'impressions': 1}, 'comments': []}]}, token=amy_token)
         admin = Client('sysadmin@demo.test')
-        week = admin.request('/api/admin/lottery?week=2026-11-09')
+        week = admin.request('/api/admin/lottery?week=2026-11-06')
         entrants = {row['memberId']: row for row in week['entrants']}
         audience = {row['memberId']: row for row in week['audience']}
         check('the lottery gives an entrant\'s saved avatar', entrants[amy_id]['avatar'] == AVATAR_A)
@@ -288,13 +288,13 @@ with tempfile.TemporaryDirectory(prefix='avatar-e2e-') as directory:
         start()
         check('a stored v1 row reads back as v2 from GET (entrant)', get_avatar(amy) == {'avatar': AVATAR_V1_UPGRADED})
         check('a stored v1 row reads back as v2 from GET (audience)', get_avatar(dee) == {'avatar': AVATAR_V1_UPGRADED})
-        week = admin.request('/api/admin/lottery?week=2026-11-09')
+        week = admin.request('/api/admin/lottery?week=2026-11-06')
         entrants = {row['memberId']: row for row in week['entrants']}
         audience = {row['memberId']: row for row in week['audience']}
         check('the lottery gives a stored v1 entrant as v2', entrants[amy_id]['avatar'] == AVATAR_V1_UPGRADED)
         check('the lottery gives a stored v1 audience member as v2', audience[dee_id]['avatar'] == AVATAR_V1_UPGRADED)
         check('a stored avatar that no longer validates reads as null', get_avatar(ben) == {'avatar': None})
-        week = admin.request('/api/admin/lottery?week=2026-11-09')
+        week = admin.request('/api/admin/lottery?week=2026-11-06')
         check('and is null in the lottery too', {r['memberId']: r for r in week['audience']}[ben_id]['avatar'] is None)
         log = log_path.read_text()
         check('with a warning naming the member and the reason',

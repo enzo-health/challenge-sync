@@ -32,6 +32,8 @@ export interface LotteryStageProps {
   onSpinEnd: (id: number) => void;
   /** Accessible description of the scene. */
   label: string;
+  /** Said of a crowd member on hover, e.g. "didn't post this week". */
+  notPosted?: string;
   /** Pixels at the bottom covered by the page's control bar; the camera frames the scene above it. */
   bottomInset?: number;
 }

@@ -11,7 +11,7 @@
 It is two apps that never call each other; the browser talks to both.
 
 - **Main app** (`server/`): knows who people are. `GET /api/plaza/roster` (everyone, their avatar,
-  whether they posted this week by the lottery's rule) and `POST /api/plaza/pass` (a 60-second
+  whether they posted in the current Friday-to-Thursday lottery week, by the lottery's rule) and `POST /api/plaza/pass` (a 60-second
   Ed25519-signed pass for the caller). Logic in `server/src/plaza.rs`; page in
   `server/app/plaza/` and `server/components/plaza/`, reusing the avatar from
   `server/components/lottery/`.
