@@ -9,7 +9,7 @@
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
 # ~8s, no extension and no LinkedIn), that the pages' prefetch.rs seeds are what a browser renders
 # from, with no fetch for them (scripts/test-prefetch-browser.mjs, the same way, ~5s), the lottery
-# page's Spin/Reset controls (scripts/test-lottery-browser.mjs, the same way), which browsers count
+# page's Spin/Reset controls and its presenter view (scripts/test-lottery-browser.mjs, the same way), which browsers count
 # as phones (scripts/test-mobile-detection.mjs, plain node) and that a phone gets the "not available
 # on mobile" notice while a narrow desktop window gets the app (scripts/test-mobile-notice-browser.mjs,
 # the same headless way), the plaza (its protocol

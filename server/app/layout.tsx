@@ -14,6 +14,7 @@ import { AppSpeedInsights } from "../components/speed-insights";
 import { rememberTimezone } from "../components/timezone";
 import { isOpenOnPhones, isPhone } from "../components/mobile";
 import { MobileNotice } from "../components/mobile-notice";
+import { isBarePage } from "../components/bare-pages";
 
 // Before any query or mutation runs: a request our host's firewall stopped becomes one
 // recognisable error app-wide (see components/host-block.tsx).
@@ -218,6 +219,16 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+// The shell, or for a bare page (components/bare-pages.ts) the page alone. Live pathname, so a soft
+// navigation between the two swaps the frame.
+function Frame({ children }: { children: ReactNode }) {
+  return (
+    <PathnameProvider>
+      {(pathname) => (isBarePage(pathname) ? <NuqsAdapter>{children}</NuqsAdapter> : <Shell>{children}</Shell>)}
+    </PathnameProvider>
+  );
+}
+
 // A phone gets components/mobile-notice.tsx in place of the shell and the page (neither is
 // mounted, so neither fetches), except on the few pages open to phones (components/mobile.ts).
 export default function Layout({ children }: { children: ReactNode }) {
@@ -237,10 +248,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       {ON_PHONE ? (
         // Live pathname: a soft navigation away from a page open to phones lands on the notice.
         <PathnameProvider>
-          {(pathname) => (isOpenOnPhones(pathname) ? <Shell>{children}</Shell> : <MobileNotice />)}
+          {(pathname) => (isOpenOnPhones(pathname) ? <Frame>{children}</Frame> : <MobileNotice />)}
         </PathnameProvider>
       ) : (
-        <Shell>{children}</Shell>
+        <Frame>{children}</Frame>
       )}
       <AppSpeedInsights />
     </>

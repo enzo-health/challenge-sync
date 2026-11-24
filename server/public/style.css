@@ -861,7 +861,7 @@ main:has(.lottery-page) { max-width: 1240px; }
   padding: 14px 28px 16px; box-shadow: 0 6px 0 var(--party-ink);
 }
 /* The big banner sits over the stage's top-left corner, clear of the centred wheel and pointer.
-   On a small or narrow stage (.compact, measured in page.tsx) the control bar's line says it instead. */
+   On a small or narrow stage (.compact, measured in components/lottery/show.tsx) the control bar's line says it instead. */
 .lottery-banner.overlay {
   position: absolute; left: 18px; top: 18px; z-index: 2; pointer-events: none;
   max-width: min(34%, 380px); text-align: left; transform-origin: 20% 20%;
@@ -965,6 +965,65 @@ main:has(.lottery-page) { max-width: 1240px; }
   .lottery-empty p { color: #cbbcf0; }
 }
 .lottery-excluded { margin: 0 0 12px; color: var(--muted); }
+
+/* "Present" and "Copy link" beside the lottery page's title. */
+.lottery-head { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.lottery-head .lottery-title { margin-right: auto; }
+.lottery-present-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lottery-present-copied { color: var(--ok); }
+.lottery-present-copy-failed { flex-basis: 100%; margin: 0; }
+.lottery-present-copy-failed input { width: min(100%, 520px); margin-top: 6px; }
+
+/* The presenter view (app/admin/lottery/present): the stage fills the window, no page scroll. */
+html.lottery-presenting, html.lottery-presenting body { overflow: hidden; }
+.lottery-present {
+  position: fixed; inset: 0; overflow: hidden;
+  background: linear-gradient(180deg, #a9dcff 0%, #cfe9ff 45%, #ffe1f0 100%);
+}
+.lottery-present .lottery-stage-wrap { margin: 0; }
+.lottery-present .lottery-stage, .lottery-present .lottery-stage.empty-stage { height: var(--stage-h); border: 0; border-radius: 0; box-shadow: none; }
+.lottery-present .lottery-controls.in-stage { left: 0; right: 0; bottom: 0; border-radius: 0; }
+.lottery-present-top {
+  position: absolute; top: 14px; right: 16px; z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 40%;
+}
+.lottery-present .lottery-week-label {
+  justify-content: flex-end; padding: 5px 14px; border-radius: 999px;
+  background: rgba(255, 255, 255, .88); border: 2px solid var(--party-ink); color: var(--party-ink);
+  font-size: 14px;
+}
+.lottery-present .lottery-week-label strong { color: var(--party-ink); }
+.lottery-present-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.lottery-present > .lottery-present-tools { position: absolute; top: 14px; right: 16px; z-index: 4; }
+.lottery-present-tool, .lottery-present-tool:hover {
+  font: 600 12px/1.2 var(--party-font); color: var(--party-ink); text-decoration: none;
+  background: rgba(255, 255, 255, .7); border: 1.5px solid rgba(43, 29, 58, .45); border-radius: 999px;
+  padding: 3px 10px; cursor: pointer;
+}
+.lottery-present-tool:hover { background: #fff; border-color: var(--party-ink); }
+/* Full screen: keep only a faint Exit until the pointer comes near. */
+.lottery-present-tools.is-fullscreen { opacity: .3; transition: opacity .2s; }
+.lottery-present-tools.is-fullscreen:hover, .lottery-present-tools.is-fullscreen:focus-within { opacity: 1; }
+.lottery-present-tool-error {
+  flex-basis: 100%; text-align: right; font-size: 12px; color: var(--err);
+  background: #fff; border-radius: 8px; padding: 2px 8px;
+}
+.lottery-present-note { position: absolute; left: 18px; top: 18px; z-index: 2; max-width: min(40%, 520px); }
+.lottery-present-note .notice, .lottery-present-note .lottery-empty { margin: 0; box-shadow: 0 4px 0 rgba(43, 29, 58, .25); }
+.lottery-present-note .lottery-solo { font-size: 16px; }
+.lottery-present-note .lottery-empty { background: #fff; }
+.lottery-present-status, .lottery-present > .lottery-fallback, .lottery-present > .lottery-empty,
+.lottery-present > .lottery-controls, .lottery-present > .lottery-solo {
+  position: relative; max-width: 720px; margin: 0 auto;
+}
+.lottery-present-status { margin-top: 12vh; padding: 28px 32px; border-radius: 22px; background: rgba(255, 255, 255, .92); }
+/* Fixed light colours over the sky, in dark mode too. */
+.lottery-present-status { color: var(--party-ink); }
+.lottery-present-status .spinner, .lottery-present-status .empty { color: #5b4a86; }
+.lottery-present-note .lottery-empty h2 { color: var(--party-ink); }
+.lottery-present-note .lottery-empty p { color: #5b4a86; }
+.lottery-present > .lottery-empty, .lottery-present > .lottery-solo, .lottery-present > .lottery-fallback { margin-top: 12vh; }
+.lottery-present > .lottery-fallback + .lottery-controls, .lottery-present > .lottery-solo + .lottery-fallback { margin-top: 16px; }
 
 /* --- avatar editor (app/me/avatar, components/lottery/avatar-preview.tsx) ------------------- */
 main:has(.avatar-page) { max-width: 1180px; }

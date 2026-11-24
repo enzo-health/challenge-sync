@@ -1,5 +1,5 @@
-// The 3D lottery show (loaded lazily by app/admin/lottery/page.tsx, so three.js only downloads
-// for this page). Pure props in, `onSpinEnd` out: the page owns the draw; this only performs it.
+// The 3D lottery show (loaded lazily by components/lottery/show.tsx, so three.js only downloads
+// for the lottery pages). Pure props in, `onSpinEnd` out: the page owns the draw; this only performs it.
 import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
