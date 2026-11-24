@@ -1025,6 +1025,85 @@ html.lottery-presenting, html.lottery-presenting body { overflow: hidden; }
 .lottery-present > .lottery-empty, .lottery-present > .lottery-solo, .lottery-present > .lottery-fallback { margin-top: 12vh; }
 .lottery-present > .lottery-fallback + .lottery-controls, .lottery-present > .lottery-solo + .lottery-fallback { margin-top: 16px; }
 
+/* The public official draw (app/lottery): the presenter frame, with cards over the sky. Fixed light
+   colours, in dark mode too, like the presenter view. */
+.official-draw .lottery-stage.party-stage { position: absolute; inset: 0; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+.official-draw.phase-frozen .lottery-stage.party-stage { right: min(420px, 32vw); width: auto; }
+.party-tag.starred { background: #fff6d6; }
+.party-fallback { position: relative; max-width: 720px; margin: 12vh auto 0; padding: 22px 28px; border-radius: 22px; background: rgba(255,255,255,.92); color: var(--party-ink); }
+.party-fallback ul { columns: 3; padding-left: 18px; }
+.draw-card {
+  position: absolute; z-index: 3; color: var(--party-ink); background: rgba(255, 255, 255, .93);
+  border: 2px solid var(--party-ink); border-radius: 18px; box-shadow: 0 4px 0 rgba(43, 29, 58, .3);
+  padding: 14px 18px;
+}
+.draw-card a { color: #5a35d6; }
+.draw-card .muted { color: #5b4a86; }
+.draw-info { left: 18px; top: 18px; width: min(440px, 36vw); }
+.official-draw.phase-spin .draw-info { position: static; width: auto; }
+.draw-kicker { font: 700 12px/1.2 var(--party-font); letter-spacing: .08em; text-transform: uppercase; color: var(--party-pink); }
+.draw-title { font: 700 30px/1.1 var(--party-font); margin: 2px 0 4px; }
+.draw-week { font: 600 16px/1.3 var(--party-font); margin: 0 0 8px; }
+.draw-info p { margin: 6px 0; font-size: 14px; }
+.draw-star { color: var(--party-sun); -webkit-text-stroke: 1px var(--party-ink); }
+.draw-countdown {
+  display: inline-block; margin-left: 4px; padding: 1px 9px; border-radius: 999px; background: var(--party-ink); color: #fff;
+  font: 700 14px/1.5 var(--party-font); font-variant-numeric: tabular-nums;
+}
+.draw-frozen-list { right: 18px; top: 60px; bottom: 18px; width: min(380px, 30vw); overflow: auto; }
+.draw-frozen-list h2, .draw-past h2 { font: 700 20px/1.2 var(--party-font); margin: 0 0 8px; }
+.draw-names { margin: 0 0 12px; padding-left: 26px; columns: 2; column-gap: 18px; font-size: 14px; }
+.draw-names li { break-inside: avoid; }
+.draw-kv { display: grid; gap: 2px; margin: 6px 0; font-size: 12px; }
+.draw-kv > span { color: #5b4a86; }
+.draw-hash { font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; word-break: break-all; background: #f4f0ff; padding: 2px 5px; border-radius: 5px; color: var(--party-ink); }
+.draw-list-text { max-height: 220px; overflow: auto; font-size: 12px; background: #f7f5fc; color: var(--party-ink); padding: 8px 10px; border-radius: 8px; white-space: pre; }
+.draw-verify { font-size: 13px; margin-top: 8px; }
+.draw-verify > summary { cursor: pointer; font: 700 14px/1.4 var(--party-font); }
+.draw-verify-steps { padding-left: 20px; margin: 8px 0; }
+.draw-verify-steps > li { margin-bottom: 10px; }
+.draw-pick-line { margin: 4px 0; }
+.draw-recompute { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.draw-recompute-out { margin: 0; padding-left: 0; list-style: none; font-size: 12px; overflow-wrap: anywhere; }
+.draw-recompute-out .ok { color: #13795b; }
+.draw-recompute-out .bad { color: var(--err); }
+.draw-side {
+  position: absolute; right: 18px; top: 60px; z-index: 3; width: min(420px, 30vw); max-height: calc(100vh - 160px);
+  overflow: auto; display: flex; flex-direction: column; gap: 10px;
+  color: var(--party-ink); background: rgba(255, 255, 255, .93); border: 2px solid var(--party-ink); border-radius: 18px;
+  box-shadow: 0 4px 0 rgba(43, 29, 58, .3); padding: 14px 18px;
+}
+.draw-side .draw-card { position: static; border: 0; box-shadow: none; padding: 0; background: none; }
+.draw-seed-problem { margin: 6px 0; }
+.draw-history h3 { font: 700 15px/1.3 var(--party-font); margin: 10px 0 4px; }
+.draw-history ol { margin: 0; padding-left: 20px; font-size: 13px; }
+.draw-history li { margin-bottom: 4px; }
+.draw-past { right: 18px; top: 60px; bottom: 18px; width: min(560px, 44vw); overflow: auto; z-index: 5; }
+.draw-past-head { display: flex; justify-content: space-between; align-items: center; }
+.draw-details { border-top: 2px dashed rgba(43, 29, 58, .25); padding: 10px 0; }
+.draw-details h3 { font: 700 17px/1.3 var(--party-font); margin: 0 0 4px; }
+.draw-details p { margin: 4px 0; }
+.draw-winner-line { font-size: 15px; }
+.draw-entrants summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.draw-entrants ul { columns: 2; font-size: 13px; padding-left: 18px; }
+.official-draw .lottery-present-status { color: var(--party-ink); }
+
+/* The admin's official draws (app/admin/lottery/official). */
+main:has(.official-draws-page) { max-width: 1240px; }
+.official-draws { display: grid; grid-template-columns: 240px 1fr; gap: 18px; align-items: start; }
+.official-draws-list ul { list-style: none; margin: 0; padding: 0; }
+.official-draw-pick { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 7px 9px; cursor: pointer; color: inherit; font: inherit; }
+.official-draw-pick:hover { background: var(--hover, rgba(0,0,0,.05)); }
+.official-draw-pick.active { background: rgba(123, 92, 255, .14); }
+.official-draw-detail .draw-details { border-top: 0; }
+.official-draw-detail .draw-hash { background: rgba(123, 92, 255, .1); color: inherit; }
+.official-draw-detail .draw-list-text { background: rgba(123, 92, 255, .06); color: inherit; }
+.draw-rounds table { font-size: 13px; }
+.draw-redraw-form label span { display: block; font-size: 13px; margin-bottom: 4px; }
+.draw-redraw-form textarea { width: 100%; }
+.draw-redraw-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.lottery-official-note { margin: 4px 0 10px; }
+
 /* --- avatar editor (app/me/avatar, components/lottery/avatar-preview.tsx) ------------------- */
 main:has(.avatar-page) { max-width: 1180px; }
 .avatar-head p { margin: 2px 0 16px; max-width: 64ch; }

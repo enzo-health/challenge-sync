@@ -47,7 +47,10 @@ Participant's browser                         Server (server/: nextrs, on Vercel
 Members see the company overview (`/`), their own synced posts and results (`/me`) and challenge
 leaderboards; admins set up challenges and their scoring rules, manage users and export post
 reports. A few fun extras are built in to support the challenge, such as a weekly lottery wheel
-(Friday-to-Thursday weeks in Mountain time, or a custom range of days, at `/admin/lottery`)
+(Friday-to-Thursday weeks in Mountain time, or a custom range of days, at `/admin/lottery`), the
+official Friday draw that anyone can watch and check at `/lottery` (the entrant list is frozen and
+hashed at 9:30, a public drand beacon round published at 9:35 picks the winner, the same in every
+browser, and admins can only redraw with a public reason; `server/src/lottery_draw.rs`)
 and the plaza, where members' avatars walk around together. Any member can make their own
 read-only API key (`/me/api-keys`) so their AI assistant can read the posts and stats through the
 reporting API ([docs/reporting-api.md](docs/reporting-api.md), also served at `/api/v1/docs`).

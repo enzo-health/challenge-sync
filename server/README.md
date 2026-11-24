@@ -115,7 +115,8 @@ src/                  domain layer — a lib crate, because .nextrs/dump-openapi
   lib.rs              module list
   models.rs           Toasty models (Org, Member, Invite, Competition, ChallengeMembership, Post,
                       PostSnapshot, PostComment, ProfileSnapshot, AdminSession, DeviceToken,
-                      JoinLink, ApiKey) + connect() and its additive migrations
+                      JoinLink, ApiKey, LotteryDraw, LotteryResult) + connect() and its additive
+                      migrations
   scoring.rs          ScoringConfig + compute_standings (derived at read time, weekly buckets,
                       top-N/week, follower normalization, profile points)
   dto.rs              wire shapes + the reads behind them (leaderboard, member detail, aggregate)
@@ -123,6 +124,10 @@ src/                  domain layer — a lib crate, because .nextrs/dump-openapi
   reports.rs          the admin post report and /api/v1/posts, /api/v1/members
   stats.rs            the company stats overview (landing page, /api/v1/stats)
   lottery.rs          the lottery entrants, Fri-Thu weeks or a custom range (/api/admin/lottery)
+  lottery_draw.rs     the official public Friday draw: phases, freeze, list hash, winner formula,
+                      redraws (/api/lottery, /api/lottery/results, /api/lottery/freeze,
+                      /api/admin/lottery/draws)
+  beacon.rs           drand quicknet: round times, fetch with relay fallback, signature check
   avatar.rs           members' avatars (/api/me/avatar)
   plaza.rs            plaza roster and signed passes (/api/plaza/*)
   enroll.rs           automatic enrollment in running challenges
@@ -144,7 +149,9 @@ app/                  the router — every directory is a URL segment
   me/                 my posts (+ prefetch.rs), me/avatar the avatar editor
   challenges/         list, new, mine, [id] leaderboard, scoring, invites, settings (+ prefetch.rs)
   members/[id]/       a participant's results
-  admin/              challenges overview, lottery; middleware.rs limits it to challenge users
+  admin/              challenges overview, lottery (+ official: the official draws and Redraw);
+                      middleware.rs limits it to challenge users
+  lottery/            the public official draw, open signed out (bare page, like the presenter)
   system/             all users (system admins only)
   reports/            post reports (+ prefetch.rs)
   plaza/              the live plaza page

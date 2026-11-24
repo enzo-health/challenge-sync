@@ -1,8 +1,10 @@
-// The weekly lottery's show, shared by the admin page (app/admin/lottery/page.tsx) and its
-// presenter view (app/admin/lottery/present/page.tsx): the period in the URL and the API call for
-// it, how the period is named, and one period's draw. The draw happens here, in the browser, with
-// crypto.getRandomValues (draw.ts) BEFORE the wheel moves; the 3D stage (stage.tsx, loaded lazily
-// so three.js only downloads on these pages) just performs it.
+// The weekly lottery's show, shared by the admin page (app/admin/lottery/page.tsx), its presenter
+// view (app/admin/lottery/present/page.tsx) and the public official draw (app/lottery/page.tsx):
+// the period in the URL and the API call for it, how the period is named, and one period's draw.
+// On the admin pages the draw happens here, in the browser, with crypto.getRandomValues (draw.ts)
+// BEFORE the wheel moves; on the official draw the server has already picked (`winnerIndex`) and
+// every Spin lands there. The 3D stage (stage.tsx, loaded lazily so three.js only downloads on
+// these pages) just performs it.
 import { Component, type CSSProperties, type ReactNode, Suspense, lazy, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
@@ -17,7 +19,7 @@ const LotteryStage = lazy(() => import("./stage"));
 // --- small helpers ---------------------------------------------------------------------------
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
-function useReducedMotion(): boolean {
+export function useReducedMotion(): boolean {
   return useSyncExternalStore(
     (onChange) => {
       const mq = window.matchMedia(REDUCED_MOTION);
@@ -30,7 +32,7 @@ function useReducedMotion(): boolean {
 }
 
 /** Whether this browser can make a WebGL context at all (checked once, before mounting three.js). */
-function detectWebGL(): boolean {
+export function detectWebGL(): boolean {
   try {
     const canvas = document.createElement("canvas");
     return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl"));
@@ -202,7 +204,7 @@ export function lotteryProblem(
 // --- the stage, guarded ----------------------------------------------------------------------
 
 /** Catches a stage that fails to start (no WebGL context, a failed chunk download, a GPU error). */
-class StageBoundary extends Component<{ onError: (error: Error) => void; children: ReactNode }, { failed: boolean }> {
+export class StageBoundary extends Component<{ onError: (error: Error) => void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -229,11 +231,29 @@ function WinnerBanner({ winner, overlay, when }: { winner: StageEntrant; overlay
 
 // --- one period's show -----------------------------------------------------------------------
 
+/** What a show needs of a period: the wheel's entrants in order, the crowd, and how to word it. */
+export type ShowPeriod = Pick<LotteryPeriodEntrants, "isCustomRange"> & {
+  entrants: StageEntrant[];
+  audience: (StagePerson & { excluded?: boolean })[];
+};
+
 /**
  * One period's draw. `presenter`: the bare full-window version (no lists, no "not in the draw"
  * line; the one-entrant and nobody-posted notes sit over the stage instead of above it).
+ * `winnerIndex`: the winner is already decided (the official draw); every Spin lands on them and
+ * Reset only replays. Without it, each Spin after a Reset draws afresh in the browser.
  */
-export function LotteryShow({ week, stale, presenter = false }: { week: LotteryPeriodEntrants; stale: boolean; presenter?: boolean }) {
+export function LotteryShow({
+  week,
+  stale,
+  presenter = false,
+  winnerIndex: fixedWinner,
+}: {
+  week: ShowPeriod;
+  stale: boolean;
+  presenter?: boolean;
+  winnerIndex?: number;
+}) {
   const reducedMotion = useReducedMotion();
   const [webgl] = useState(detectWebGL);
   const entrants: StageEntrant[] = week.entrants; // the API sorts by name: that is the wheel order
@@ -279,8 +299,9 @@ export function LotteryShow({ week, stale, presenter = false }: { week: LotteryP
   const doSpin = () => {
     if (n === 0 || stale || drawn.current) return;
     drawn.current = true;
-    // The draw: uniform over the entrants, decided now; the wheel animates to it afterwards.
-    const winnerIndex = drawWinnerIndex(entrants);
+    // The draw: uniform over the entrants, decided now (or by the server already); the wheel
+    // animates to it afterwards.
+    const winnerIndex = fixedWinner ?? drawWinnerIndex(entrants);
     const request = { id: (spinRef.current?.id ?? 0) + 1, winnerIndex };
     setSpin(request);
     if (showStage) {
@@ -295,7 +316,7 @@ export function LotteryShow({ week, stale, presenter = false }: { week: LotteryP
   const reset = () => {
     drawn.current = false;
     setPhase("ready");
-    setAnnouncement("Reset. Ready for a new draw.");
+    setAnnouncement(fixedWinner === undefined ? "Reset. Ready for a new draw." : "Reset. Spin to replay the draw.");
   };
 
   const label =
@@ -318,7 +339,12 @@ export function LotteryShow({ week, stale, presenter = false }: { week: LotteryP
       )}
       {phase === "won" ? (
         <div className="lottery-buttons side">
-          <button type="button" className="btn lottery-reset" onClick={reset} title="Clears this result; the wheel can then be spun again">
+          <button
+            type="button"
+            className="btn lottery-reset"
+            onClick={reset}
+            title={fixedWinner === undefined ? "Clears this result; the wheel can then be spun again" : "Back to the start; the wheel lands on the same winner every time"}
+          >
             Reset
           </button>
         </div>

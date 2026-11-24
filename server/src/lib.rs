@@ -4,10 +4,12 @@
 pub mod accounts;
 pub mod auth;
 pub mod avatar;
+pub mod beacon;
 pub mod db_timing;
 pub mod dto;
 pub mod enroll;
 pub mod lottery;
+pub mod lottery_draw;
 pub mod models;
 pub mod plaza;
 pub mod reads;

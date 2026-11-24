@@ -2,7 +2,8 @@
 // Thursday, Mountain time; the draw is on a Friday) gets one entry, whatever their post count. A
 // custom range of days (`?from=…&to=…`, both included) can be drawn instead of a week. The draw and
 // its 3D show are components/lottery/show.tsx, shared with the presenter view (./present), which
-// "Present" opens for the period shown here. Admin-only: /admin/** is guarded by
+// "Present" opens for the period shown here. The official Friday draw is not this page: it is the
+// public /lottery (src/lottery_draw.rs), with its records at ./official. Admin-only: /admin/** is guarded by
 // app/admin/middleware.rs and the API checks too.
 import { useState } from "react";
 import type { LotteryPeriodEntrants } from "@linkedin-challenge/client";
@@ -147,6 +148,11 @@ export default function LotteryPage() {
         <h1 className="lottery-title">Weekly lottery</h1>
         <PresentLinks w={w} />
       </div>
+      <p className="notice lottery-official-note">
+        The official Friday draw is the public one at <a href="/lottery">/lottery</a>: the list freezes at 9:30 Mountain time and a
+        public drand beacon picks the winner at 9:35, the same for everyone. Its records and redraws are on{" "}
+        <a href="/admin/lottery/official">Official draws</a>. This page is for browsing weeks and ad-hoc draws in this browser.
+      </p>
       <div className={`lottery-week${range ? " is-range" : ""}`}>
         {!range && (
           <button

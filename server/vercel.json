@@ -8,6 +8,12 @@
     }
   },
   "git": { "deploymentEnabled": false },
+  "crons": [
+    { "path": "/api/lottery/freeze", "schedule": "30 15 * * 5" },
+    { "path": "/api/lottery/freeze", "schedule": "30 16 * * 5" },
+    { "path": "/api/lottery/freeze", "schedule": "36 15 * * 5" },
+    { "path": "/api/lottery/freeze", "schedule": "36 16 * * 5" }
+  ],
   "regions": ["pdx1"],
   "headers": [
     {
