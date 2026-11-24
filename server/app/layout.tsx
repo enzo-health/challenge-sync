@@ -28,10 +28,10 @@ rememberTimezone();
 const ON_PHONE = isPhone(navigator);
 
 function NavLink({ href, pathname }: { href: string; pathname: string }) {
-  // Prefix-match nested routes; exact-match the landing page and the owner overview so they don't
-  // stay lit for every child underneath them.
+  // Prefix-match nested routes; exact-match the landing page, the owner overview and the legacy
+  // lottery (the official draw lives underneath it) so they don't stay lit for every child.
   const active =
-    href === "/" || href === "/challenges/mine" ? pathname === href : pathname.startsWith(href);
+    href === "/" || href === "/challenges/mine" || href === "/admin/lottery" ? pathname === href : pathname.startsWith(href);
   return (
     <a className={active ? "nav-link active" : "nav-link"} href={href}>
       {label(href)}
@@ -53,7 +53,8 @@ const LABELS: Record<string, string> = {
   "/challenges/new": "Create a challenge",
   "/system": "All users",
   "/reports": "Post reports",
-  "/admin/lottery": "Weekly lottery",
+  "/admin/lottery/official": "Weekly lottery",
+  "/admin/lottery": "Legacy lottery",
 };
 const label = (href: string) => LABELS[href] ?? href;
 
@@ -152,6 +153,7 @@ function Sidebar() {
                   <div className="nav-section">System</div>
                   <NavLink href="/system" pathname={pathname} />
                   <NavLink href="/reports" pathname={pathname} />
+                  <NavLink href="/admin/lottery/official" pathname={pathname} />
                   <NavLink href="/admin/lottery" pathname={pathname} />
                 </>
               )}

@@ -125,9 +125,9 @@ export default function OfficialDrawsPage() {
   return (
     <div className="official-draws-page">
       <p>
-        <a href="/admin/lottery">← Weekly lottery</a>
+        <a href="/admin/lottery">Legacy lottery (manual draws) →</a>
       </p>
-      <h1 className="lottery-title">Official draws</h1>
+      <h1 className="lottery-title">Weekly lottery</h1>
       <p className="lede">
         The official Friday draw is public at <a href="/lottery">/lottery</a>. Each week&rsquo;s list freezes at 9:30 Mountain time on
         the Friday after it, and the drand round published at 9:35 picks the winner. Now:{" "}
