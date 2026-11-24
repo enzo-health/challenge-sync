@@ -19,6 +19,12 @@
 //      Previous/Next, and words the lists and the result "in this range"; "Back to the weekly
 //      draw" drops the range from the URL; "Custom range…" with two dates and Apply puts them in
 //      the URL and asks the API for them.
+//   8. presenting: the page's Present link carries the period shown (week or range) and Copy link
+//      copies its absolute URL, or says what failed and shows it; /admin/lottery/present (from
+//      Present, or loaded with no parameters, ?week= or ?from=&to=) has no shell, banners, week
+//      picker or lists and no page scroll, names the period, draws once per Reset with the winner
+//      banner, and Exit goes back with the period; signed out it goes to sign-in, and a member who
+//      is not an admin is turned away exactly as from /admin/lottery.
 //
 // Requires chromium on PATH and `cargo build` in server/. Software WebGL is asked for; without it
 // the page uses its text-only draw, which has the same controls (the output says which ran).
@@ -314,6 +320,116 @@ try {
     applied.toString());
   check("and asks the API for it", asked.some((q) => q === "?from=2026-11-17&to=2026-11-19"), JSON.stringify(asked));
 
+  // 8. The presenter view (/admin/lottery/present) and the main page's Present / Copy link.
+  const presentHref = `document.querySelector(".lottery-present-open")?.getAttribute("href") ?? ""`;
+  // (The period shown is the API's answer, which the mock gives as 16–20 Nov for any range.)
+  check("Present on a custom range carries the range shown", (await evaluate(presentHref)) === "/admin/lottery/present?from=2026-11-16&to=2026-11-20",
+    await evaluate(presentHref));
+  await hardLoad("/admin/lottery");
+  await waitFor(ready, "the Spin button on the default week");
+  check("Present on the default week carries that week's Friday", (await evaluate(presentHref)) === "/admin/lottery/present?week=2026-11-13",
+    await evaluate(presentHref));
+  // Copy link: the clipboard gets the absolute presenter link; a refused write says what failed.
+  // (navigator.clipboard.writeText is stood in for: a headless browser has no system clipboard.)
+  await evaluate(`(() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; })()`);
+  await evaluate(`document.querySelector(".lottery-present-copy").click()`);
+  await waitFor(`!!document.querySelector(".lottery-present-copied")`, "the copied note");
+  check("Copy link copies the absolute presenter link", (await evaluate("window.__copied")) === `${base}/admin/lottery/present?week=2026-11-13`,
+    await evaluate("window.__copied"));
+  await evaluate(`navigator.clipboard.writeText = () => Promise.reject(new DOMException("Write permission denied.", "NotAllowedError"))`);
+  await evaluate(`document.querySelector(".lottery-present-copy").click()`);
+  await waitFor(`!!document.querySelector(".lottery-present-copy-failed")`, "the copy failure");
+  const copyFailed = await evaluate(`document.querySelector(".lottery-present-copy-failed").innerText.trim()`);
+  const copyField = await evaluate(`document.querySelector(".lottery-present-copy-failed input")?.value ?? ""`);
+  check("a failed copy says what failed and offers the link to copy by hand",
+    copyFailed === "Copying the link failed: Write permission denied. Copy it from here:" && copyField === `${base}/admin/lottery/present?week=2026-11-13`,
+    `${copyFailed} | ${copyField}`);
+
+  // Present opens the bare view for the period shown (a soft navigation: the shell must go too).
+  asked.length = 0;
+  await evaluate(`document.querySelector(".lottery-present-open").click()`);
+  await waitFor(`location.pathname === "/admin/lottery/present" && !!document.querySelector(".lottery-present .lottery-go")`, "the presenter view");
+  check("Present opens the presenter view for that week", (await evaluate("location.search")) === "?week=2026-11-13", await evaluate("location.search"));
+  const bare = `({ shell: !!document.querySelector(".shell, .sidebar, nav, .side-nav, main"),
+    banners: document.querySelectorAll(".paused-banner, .host-blocked, .server-unreachable").length,
+    picker: !!document.querySelector(".lottery-week, .lottery-range-form, .lottery-title"), lists: !!document.querySelector(".lottery-lists, .lottery-excluded"),
+    scroll: document.documentElement.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth })`;
+  const isBare = (b) => !b.shell && b.banners === 0 && !b.picker && !b.lists && !b.scroll;
+  let shape = await evaluate(bare);
+  check("the presenter view has no shell, sidebar, banners, week picker or lists, and no page scroll", isBare(shape), JSON.stringify(shape));
+  const presentLabel = `document.querySelector(".lottery-present .lottery-week-label")?.innerText.replace(/\\s+/g, " ").trim() ?? ""`;
+  check("it names the week", /^Fri 13 Nov – Thu 19 Nov( 2026)?, Mountain time$/.test(await evaluate(presentLabel)), await evaluate(presentLabel));
+  check("it asked the API for that week", asked.includes("?week=2026-11-13"), JSON.stringify(asked));
+
+  // A hard load with no parameters: the latest complete week, nothing asked for.
+  asked.length = 0;
+  await hardLoad("/admin/lottery/present");
+  await waitFor(ready, "the presenter's Spin button");
+  shape = await evaluate(bare);
+  check("a hard load of the presenter view is bare too", isBare(shape), JSON.stringify(shape));
+  check("with no parameters it asks the API for none", asked.length >= 1 && asked.every((q) => q === ""), JSON.stringify(asked));
+  check("and names the week it got", /^Fri 13 Nov – Thu 19 Nov( 2026)?, Mountain time$/.test(await evaluate(presentLabel)), await evaluate(presentLabel));
+  check("Full screen and Exit are offered; Exit goes back to the lottery page",
+    (await evaluate(`!!document.querySelector(".lottery-present-fullscreen")`)) &&
+      (await evaluate(`document.querySelector(".lottery-present-exit")?.getAttribute("href")`)) === "/admin/lottery");
+
+  // The draw: one per Reset, with the winner banner, by the same rules as the main page.
+  const drawsBefore = await evaluate("window.__draws");
+  await evaluate(`(() => { const b = document.querySelector(".lottery-go"); b.click(); b.click(); })()`);
+  await waitFor(won, "the presenter's result");
+  check("a (double-clicked) spin in the presenter view draws once", (await evaluate("window.__draws")) === drawsBefore + 1,
+    `draws: ${await evaluate("window.__draws")}`);
+  const banner = await evaluate(`document.querySelector(".lottery-banner")?.innerText.replace(/\\s+/g, " ").trim() ?? ""`);
+  check("and shows the winner banner", /^★ This week’s winner ★ (Ada One|Ben Two|Cy Three|Di Four|Ed Five) \d posts? this week$/i.test(banner), banner);
+  check("after the win only Reset is offered", (await evaluate(`document.querySelectorAll(".lottery-go").length`)) === 0 &&
+    (await evaluate(`!!document.querySelector(".lottery-reset")`)));
+  await evaluate(`document.querySelector(".lottery-reset").click()`);
+  await waitFor(ready, "Spin to come back after Reset in the presenter view");
+  check("Reset brings back Spin, clears the banner and draws nothing", (await evaluate("window.__draws")) === drawsBefore + 1 &&
+    !(await evaluate(`!!document.querySelector(".lottery-banner")`)));
+  await evaluate(`document.querySelector(".lottery-go").click()`);
+  await waitFor(won, "the presenter's second result");
+  check("only then can a second spin draw", (await evaluate("window.__draws")) === drawsBefore + 2);
+
+  // ?week= and ?from=&to= links.
+  asked.length = 0;
+  await hardLoad("/admin/lottery/present?week=2026-11-13");
+  await waitFor(ready, "the presenter's Spin button for a week");
+  check("a ?week= link asks the API for that week and names it", asked.length >= 1 && asked.every((q) => q === "?week=2026-11-13") &&
+    /^Fri 13 Nov – Thu 19 Nov( 2026)?, Mountain time$/.test(await evaluate(presentLabel)), `${JSON.stringify(asked)} ${await evaluate(presentLabel)}`);
+  asked.length = 0;
+  await hardLoad("/admin/lottery/present?from=2026-11-16&to=2026-11-20");
+  await waitFor(ready, "the presenter's Spin button for a range");
+  check("a ?from=&to= link asks for the range and labels it custom range, in progress",
+    asked.length >= 1 && asked.every((q) => q === "?from=2026-11-16&to=2026-11-20") &&
+      /^custom range Mon 16 Nov – Fri 20 Nov( 2026)?, Mountain time in progress$/.test(await evaluate(presentLabel)),
+    `${JSON.stringify(asked)} ${await evaluate(presentLabel)}`);
+  check("Exit keeps the range", (await evaluate(`document.querySelector(".lottery-present-exit").getAttribute("href")`)) === "/admin/lottery?from=2026-11-16&to=2026-11-20");
+  await evaluate(`document.querySelector(".lottery-present-exit").click()`);
+  await waitFor(`location.pathname === "/admin/lottery" && !!document.querySelector(".sidebar") && !!document.querySelector(".lottery-range-badge")`,
+    "the lottery page after Exit");
+  check("Exit returns to the lottery page, with its shell, for the same range", (await evaluate("location.search")) === "?from=2026-11-16&to=2026-11-20");
+
+  // The gate is /admin/lottery's: signed out goes to sign-in, a member who is not a system admin
+  // to the home page, the same for both pages.
+  const gate = async (path, cookie) => {
+    const r = await fetch(`${base}${path}`, { redirect: "manual", headers: cookie ? { cookie: `session=${cookie}` } : {} });
+    return `${r.status} ${r.headers.get("location") ?? ""}`;
+  };
+  const memberLogin = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "ada@demo.test", password: "demopassword" }),
+  });
+  const memberSession = memberLogin.headers.get("set-cookie")?.match(/session=([^;]+)/)?.[1];
+  assert.ok(memberLogin.ok && memberSession, `member login failed: ${memberLogin.status}`);
+  for (const [who, cookie, expected] of [["signed out", null, "/auth/login"], ["a member who is not an admin", memberSession, "/"]]) {
+    const main = await gate("/admin/lottery", cookie);
+    const present = await gate("/admin/lottery/present?week=2026-11-13", cookie);
+    check(`${who}: the presenter view redirects like the lottery page`, present === main && /^30[0-9] /.test(present) && present.endsWith(` ${expected}`),
+      `${present} vs ${main}`);
+  }
+
   // 6. The All users page's row menu.
   const toSystem = new Promise((res) => page.on("Page.loadEventFired", res));
   await page.call("Page.navigate", { url: `${base}/system` });
@@ -360,6 +476,12 @@ try {
   await waitFor(`[...document.querySelectorAll("button")].some((b) => b.innerText.trim() === "Restore account")`, "the deleted row's menu");
   const offered = await evaluate(`[...document.querySelectorAll("button")].map((b) => b.innerText.trim()).filter((t) => /lottery/.test(t))`);
   check("a deleted account's menu does not offer the lottery item", offered.length === 0, offered.join(", "));
+
+  // 8 (end). Signed out in the browser: the presenter link lands on sign-in.
+  await page.call("Network.clearBrowserCookies");
+  await hardLoad("/admin/lottery/present?week=2026-11-13");
+  await waitFor(`location.pathname === "/auth/login"`, "the sign-in page");
+  check("signed out, the presenter link is sent to sign-in", (await evaluate("location.pathname")) === "/auth/login");
 
   console.log(JSON.stringify({ result: "PASS", checks: passed, stage }));
 } finally {
