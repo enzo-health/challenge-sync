@@ -9,7 +9,9 @@
 # host-block handling in a headless Chromium on a throwaway profile (scripts/test-signin-polling.mjs,
 # ~8s, no extension and no LinkedIn), that the pages' prefetch.rs seeds are what a browser renders
 # from, with no fetch for them (scripts/test-prefetch-browser.mjs, the same way, ~5s), the lottery
-# page's Spin/Reset controls and its presenter view (scripts/test-lottery-browser.mjs, the same way), which browsers count
+# page's Spin/Reset controls and its presenter view (scripts/test-lottery-browser.mjs, the same way), the public
+# official draw at /lottery through a pinned Friday, against a local fake drand relay, so nothing here
+# reaches the network (scripts/test-lottery-draw-browser.mjs; its APIs: server/scripts/test-lottery-draw-e2e.py), which browsers count
 # as phones (scripts/test-mobile-detection.mjs, plain node) and that a phone gets the "not available
 # on mobile" notice while a narrow desktop window gets the app (scripts/test-mobile-notice-browser.mjs,
 # the same headless way), the plaza (its protocol
@@ -250,10 +252,12 @@ server_steps=(
   "sync-banner python3 server/scripts/test-sync-banner-e2e.py"
   "server-timing python3 server/scripts/test-server-timing-e2e.py"
   "lottery python3 server/scripts/test-lottery-e2e.py"
+  "lottery-draw python3 server/scripts/test-lottery-draw-e2e.py"
   "avatar python3 server/scripts/test-avatar-e2e.py"
   "prefetch python3 server/scripts/test-prefetch-e2e.py"
   "prefetch-browser node scripts/test-prefetch-browser.mjs"
   "lottery-browser node scripts/test-lottery-browser.mjs"
+  "draw-browser node scripts/test-lottery-draw-browser.mjs"
   "mobile-browser node scripts/test-mobile-notice-browser.mjs"
   "avatar-browser node scripts/test-avatar-browser.mjs"
   "plaza python3 server/scripts/test-plaza-e2e.py"

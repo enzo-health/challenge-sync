@@ -5,6 +5,17 @@
 - `plaza/`, `plaza-protocol/`: the plaza's live room and its shared protocol crate (below).
 - `scripts/check.sh` (`just check`) runs every check; get it green before calling work done.
 
+## The official weekly lottery draw
+
+`/lottery` is the public, provably fair Friday draw: open signed out, one address every week.
+Rules and timetable (Denver time: list frozen 09:30, seeded 09:35 by drand's quicknet beacon, wheel
+until 12:00) live in `server/src/lottery_draw.rs`; the beacon fetch and its checks in
+`server/src/beacon.rs`. The server picks the winner; the page only animates to it. Never add a
+fallback to local randomness, and never add an API that edits or deletes a draw record
+(`lottery_draws`, `lottery_results`). A Vercel cron (`crons` in `server/vercel.json`) calls the
+idempotent `GET /api/lottery/freeze`. Tests fake drand locally (`LOTTERY_BEACON_URLS` and the
+debug-only `DEV_BEACON_SKIP_SIGNATURE_CHECK=1`) and pin the clock with `DEV_CLOCK_OFFSET_FILE`.
+
 ## The plaza
 
 `/plaza` is a page where every signed-in member's avatar walks around with everyone else's.

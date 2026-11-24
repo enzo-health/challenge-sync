@@ -14,7 +14,7 @@ import type { LotteryStageProps, Show, ShowPhase, SpinRequest, StageEntrant, Sta
 import { Wheel } from "./wheel";
 
 /** The fitted wide shot, which the camera rig starts from and comes back to. */
-interface BasePose {
+export interface BasePose {
   ready: boolean;
   position: THREE.Vector3;
   aim: THREE.Vector3;
@@ -24,7 +24,18 @@ interface BasePose {
  * Computes the wide shot that keeps the whole set in frame at any canvas size (a slightly raised,
  * straight-on view) and places the camera there; `CameraRig` moves it from there on a win.
  */
-function FitCamera({ points, bottomInset, base }: { points: Layout["frame"]; bottomInset: number; base: RefObject<BasePose> }) {
+export function FitCamera({
+  points,
+  bottomInset,
+  topInset = 0,
+  base,
+}: {
+  points: Layout["frame"];
+  bottomInset: number;
+  /** Pixels at the top covered by the page (the party's info card); the scene is framed below them. */
+  topInset?: number;
+  base: RefObject<BasePose>;
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
@@ -57,6 +68,7 @@ function FitCamera({ points, bottomInset, base }: { points: Layout["frame"]; bot
     };
     // Keep everything above the control bar: NDC y runs -1 (bottom) .. 1 (top).
     const floor = -0.97 + (2 * Math.min(bottomInset, height * 0.4)) / height;
+    const ceiling = 0.95 - (2 * Math.min(topInset, height * 0.4)) / height;
     const fit = () => {
       let lo = 1;
       let hi = 400;
@@ -64,7 +76,7 @@ function FitCamera({ points, bottomInset, base }: { points: Layout["frame"]; bot
         const mid = (lo + hi) / 2;
         place(mid);
         const e = extent();
-        if (!e.behind && e.minX >= -0.97 && e.maxX <= 0.97 && e.minY >= floor && e.maxY <= 0.95) hi = mid;
+        if (!e.behind && e.minX >= -0.97 && e.maxX <= 0.97 && e.minY >= floor && e.maxY <= ceiling) hi = mid;
         else lo = mid;
       }
       place(hi);
@@ -76,13 +88,13 @@ function FitCamera({ points, bottomInset, base }: { points: Layout["frame"]; bot
       // Shift the aim by the off-centre amount (in world units at the aim's distance).
       const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * dist;
       const up = new THREE.Vector3(0, Math.cos(elevation), -Math.sin(elevation));
-      aim.addScaledVector(up, ((e.maxY + e.minY) / 2 - (floor + 0.95) / 2) * halfH);
+      aim.addScaledVector(up, ((e.maxY + e.minY) / 2 - (floor + ceiling) / 2) * halfH);
     }
     fit();
     base.current.position.copy(camera.position);
     base.current.aim.copy(aim);
     base.current.ready = true;
-  }, [camera, width, height, points, bottomInset, base]);
+  }, [camera, width, height, points, bottomInset, topInset, base]);
   return null;
 }
 

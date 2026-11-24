@@ -43,8 +43,8 @@ use crate::util::{civil_from_days, days_from_civil, fmt_date};
 use crate::web::ApiResult;
 
 pub const TIMEZONE: &str = "America/Denver";
-const DAY: i64 = 86_400;
-const HOUR: i64 = 3_600;
+pub(crate) const DAY: i64 = 86_400;
+pub(crate) const HOUR: i64 = 3_600;
 /// Mountain Standard Time, seconds east of UTC.
 const MST: i64 = -7 * HOUR;
 /// Mountain Daylight Time, seconds east of UTC.
@@ -54,7 +54,7 @@ const WEEKDAYS: [&str; 7] = [
 ];
 
 /// Day of the week of a unix day number, 0 = Monday … 6 = Sunday (1970-01-01 was a Thursday).
-fn weekday(day: i64) -> i64 {
+pub(crate) fn weekday(day: i64) -> i64 {
     (day + 3).rem_euclid(7)
 }
 
@@ -79,18 +79,18 @@ pub fn denver_offset(unix: i64) -> i64 {
 
 /// The instant a local Denver date begins. Midnight is never skipped or repeated, because the
 /// clocks change at 02:00.
-fn local_midnight(day: i64) -> i64 {
+pub(crate) fn local_midnight(day: i64) -> i64 {
     let standard = day * DAY - MST;
     if denver_offset(standard) == MST { standard } else { day * DAY - MDT }
 }
 
 /// The Denver date (as a unix day number) an instant falls on.
-fn local_day(unix: i64) -> i64 {
+pub(crate) fn local_day(unix: i64) -> i64 {
     (unix + denver_offset(unix)).div_euclid(DAY)
 }
 
 /// The first day of a lottery week, as [`weekday`] numbers it.
-const FRIDAY: i64 = 4;
+pub(crate) const FRIDAY: i64 = 4;
 
 /// The longest custom range, in days, that can be asked for.
 pub const MAX_RANGE_DAYS: i64 = 62;
@@ -147,7 +147,7 @@ pub struct LotteryWeek {
 
 impl LotteryWeek {
     /// The week starting on this Friday (unix day number).
-    fn starting(friday: i64) -> Self {
+    pub(crate) fn starting(friday: i64) -> Self {
         let period = LotteryPeriod::days(friday, friday + 7);
         Self { friday, starts_at: period.starts_at, ends_at: period.ends_at }
     }
@@ -186,7 +186,7 @@ impl LotteryWeek {
 }
 
 /// The Friday on or before a day (unix day numbers).
-fn week_start(day: i64) -> i64 {
+pub(crate) fn week_start(day: i64) -> i64 {
     day - (weekday(day) - FRIDAY).rem_euclid(7)
 }
 

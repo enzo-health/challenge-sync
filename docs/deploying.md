@@ -40,6 +40,8 @@ Set the runtime environment in the Vercel project:
 |---|---|
 | `DATABASE_URL` | your database connection string |
 | `SEED_DEMO` | leave **unset** in production — it would create a "Demo Corp" org with public passwords |
+| `CRON_SECRET` | optional, recommended: any long random string. Vercel then sends it with each cron call, and the official lottery draw records a freeze as `cron` only when it matches (without it, by Vercel's cron user agent). It labels the record; the freeze URL works the same either way |
+| `LOTTERY_BEACON_URLS` | leave **unset**: the drand relays default to `https://api.drand.sh`, `https://drand.cloudflare.com`, `https://api2.drand.sh`. Comma-separated base URLs replace them (the tests point it at a local fake) |
 
 `PORT` is ignored on Vercel; the runtime supplies the listener.
 
@@ -100,6 +102,24 @@ cd extension && ./build.sh https://<your-deployment>
 ```
 
 See [distributing-the-extension.md](distributing-the-extension.md).
+
+## The official lottery draw's cron
+
+`vercel.json` has four cron entries for `GET /api/lottery/freeze`, every Friday at 15:30, 16:30,
+15:36 and 16:36 UTC. Cron times are UTC and Denver moves between UTC-6 and UTC-7, so each local time
+(09:30 to freeze the list, 09:36 to fetch the 09:35 seed) gets both candidates; the endpoint itself
+decides by Denver time and does nothing when nothing is due, so the wrong-offset call is harmless.
+Each entry runs once a day, which the Hobby plan also allows, but Hobby runs a cron anywhere within
+its hour; per-minute timing needs Pro. Crons run only on production deployments; check them under
+the project's Settings → Cron Jobs after the first deploy that has them. If the cron is late or
+off, the first visit to `/lottery` after 09:30 freezes the list instead (recorded as
+`safety-net`), on the draw Friday only: a week nobody froze that day has no official draw.
+
+The draw needs outbound HTTPS from the function to the drand relays (`beacon.rs`). If none answers,
+the page says which failed and why, and the next request tries again; there is no local fallback.
+
+To check it after a deploy: `curl -sS https://social-challenge.enzo.health/api/lottery/freeze`
+answers `{"action":"not-due",…,"nextFreezeAt":…}` outside Friday 09:30–24:00 Denver time.
 
 ## What is not set up yet
 

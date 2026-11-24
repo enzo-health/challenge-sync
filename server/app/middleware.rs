@@ -11,7 +11,10 @@ use nextrs::conventions::MiddlewareResult;
 ///  * the get-started page, the password fallback, and the company join link;
 ///  * the auth API those surfaces post to;
 ///  * the extension protocol, which authenticates with a bearer sync token instead of the cookie;
-///  * the reporting API, which authenticates with a bearer API key, and its documentation.
+///  * the reporting API, which authenticates with a bearer API key, and its documentation;
+///  * the official weekly lottery draw: its page, its API and the cron's freeze URL, public by
+///    design so anyone can watch and check the draw (`src/lottery_draw.rs`; names, avatars, post
+///    counts and draw data only).
 fn is_public(path: &str) -> bool {
     matches!(path, "/auth/login" | "/auth/password" | "/auth/join" | "/privacy")
         // The company join link. The code is in the path so the link can be pasted anywhere.
@@ -30,6 +33,11 @@ fn is_public(path: &str) -> bool {
         // Its documentation, so a member can hand their agent a URL. Public by design: it holds
         // no data, only how to call the API (see `reports::REPORTING_API_DOC`).
         || path == "/api/v1/docs"
+        // The official weekly draw (`src/lottery_draw.rs`). Exact paths: nothing under them is public.
+        || path == "/lottery"
+        || path == "/api/lottery"
+        || path == "/api/lottery/results"
+        || path == "/api/lottery/freeze"
         // Bundles, stylesheet, favicons. Blocking these would break the login page itself.
         || path.starts_with("/dist/")
         || path.starts_with("/favicon.")

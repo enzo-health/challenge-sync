@@ -54,6 +54,12 @@ argon2 = "0.5"
 # The plaza's pass format (sign here, verify in the room), shared with ../plaza. A path outside
 # server/: fine for the prebuilt deploy, which runs cargo in this checkout (see scripts/deploy-prebuilt.sh).
 plaza-protocol = { path = "../plaza-protocol" }
+# Fetches the official lottery draw's public seed from drand (src/beacon.rs). Blocking, small, and
+# rustls with ring (pure-Rust TLS, already in the tree through tokio-postgres-rustls): no OpenSSL,
+# so it cross-builds for Vercel with zig like everything else.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Verifies the drand quicknet beacon's BLS signature (pure Rust: bls12_381, pairing, sha2).
+drand-verify = "0.6.2"
 
 # Password hashing is deliberately slow, and unoptimized it is slower still: every e2e test server
 # (debug build) hashes the seeded demo passwords at startup and on each sign-in. Optimizing just
@@ -62,4 +68,8 @@ plaza-protocol = { path = "../plaza-protocol" }
 opt-level = 3
 
 [profile.dev.package.blake2]
+opt-level = 3
+
+# The same for the beacon's BLS signature check, which the e2e servers run on every seed.
+[profile.dev.package.bls12_381]
 opt-level = 3

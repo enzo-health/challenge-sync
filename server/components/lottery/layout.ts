@@ -53,7 +53,12 @@ function stageRowsFor(n: number): number {
   return Math.ceil(n / 14);
 }
 
-export function layoutFor(entrantCount: number, audienceCount: number): Layout {
+/**
+ * Where everyone stands for `entrantCount` people on stage and `audienceCount` in front of it.
+ * `withWheel: false` (the dance party, components/lottery/party.tsx) keeps the camera off the empty
+ * space where the wheel would stand.
+ */
+export function layoutFor(entrantCount: number, audienceCount: number, withWheel = true): Layout {
   const crowded = entrantCount > 16;
   const stageScale = entrantCount > 30 ? 0.82 : entrantCount > 16 ? 0.9 : 1;
   const spacing = entrantCount > 30 ? 1.12 : entrantCount > 16 ? 1.25 : 1.45;
@@ -111,7 +116,7 @@ export function layoutFor(entrantCount: number, audienceCount: number): Layout {
   });
   frame.push([board.minX, board.top, board.maxZ], [board.maxX, board.top, board.maxZ], [board.minX, 0, board.maxZ], [board.maxX, 0, board.maxZ]);
   frame.push([board.minX + 0.35, board.top + 3.3, board.maxZ - 0.35], [board.maxX - 0.35, board.top + 3.3, board.maxZ - 0.35]); // balloons
-  if (entrantCount > 0) {
+  if (entrantCount > 0 && withWheel) {
     frame.push([-radius - 0.6, wheelY, wheelZ], [radius + 0.6, wheelY, wheelZ], [0, wheelY + radius + 1.0, wheelZ]);
   }
   for (const a of audience) frame.push([a.x, 0, a.z], [a.x, AVATAR_HEIGHT * audienceScale, a.z]);
